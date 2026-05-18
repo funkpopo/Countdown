@@ -2,15 +2,18 @@ import { useEffect, useState, useTransition } from "react";
 import {
   databaseHealthcheck,
   getBootstrapInfo,
+  getDatabaseSummary,
   initializeLocalDatabase,
   type BootstrapInfo,
   type DatabaseHealth,
+  type DatabaseSummary,
 } from "./desktop";
 import "./App.css";
 
 function App() {
   const [bootstrapInfo, setBootstrapInfo] = useState<BootstrapInfo | null>(null);
   const [databaseHealth, setDatabaseHealth] = useState<DatabaseHealth | null>(null);
+  const [databaseSummary, setDatabaseSummary] = useState<DatabaseSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
@@ -18,12 +21,14 @@ function App() {
     startTransition(async () => {
       try {
         setError(null);
-        const [bootstrap, health] = await Promise.all([
+        const [bootstrap, health, summary] = await Promise.all([
           getBootstrapInfo(),
           databaseHealthcheck(),
+          getDatabaseSummary(),
         ]);
         setBootstrapInfo(bootstrap);
         setDatabaseHealth(health);
+        setDatabaseSummary(summary);
       } catch (refreshError) {
         setError(
           refreshError instanceof Error ? refreshError.message : "Failed to load app state.",
@@ -42,8 +47,12 @@ function App() {
         setError(null);
         const health = await initializeLocalDatabase();
         setDatabaseHealth(health);
-        const bootstrap = await getBootstrapInfo();
+        const [bootstrap, summary] = await Promise.all([
+          getBootstrapInfo(),
+          getDatabaseSummary(),
+        ]);
         setBootstrapInfo(bootstrap);
+        setDatabaseSummary(summary);
       } catch (initError) {
         setError(
           initError instanceof Error ? initError.message : "Failed to initialize database.",
@@ -116,12 +125,12 @@ function App() {
               <dd>{bootstrapInfo?.phase1Complete ? "Completed" : "Pending"}</dd>
             </div>
             <div>
-              <dt>IPC</dt>
-              <dd>{bootstrapInfo ? "Connected" : "Waiting"}</dd>
+              <dt>Phase 2</dt>
+              <dd>{bootstrapInfo?.phase2Complete ? "Completed" : "Pending"}</dd>
             </div>
             <div>
-              <dt>Refresh</dt>
-              <dd>{isPending ? "Running" : "Idle"}</dd>
+              <dt>IPC</dt>
+              <dd>{bootstrapInfo ? "Connected" : "Waiting"}</dd>
             </div>
           </dl>
         </article>
@@ -149,17 +158,55 @@ function App() {
               <dt>Initialized At</dt>
               <dd>{databaseHealth?.initializedAt ?? "Uninitialized"}</dd>
             </div>
+            <div>
+              <dt>Migrations</dt>
+              <dd>{databaseHealth?.migrationCount ?? 0}</dd>
+            </div>
           </dl>
         </article>
 
         <article className="panel wide">
-          <h2>Scaffold Coverage</h2>
+          <h2>Schema Summary</h2>
+          <dl className="facts">
+            <div>
+              <dt>Schema Version</dt>
+              <dd>{databaseSummary?.schemaVersion ?? "Not applied"}</dd>
+            </div>
+            <div>
+              <dt>Applied Migrations</dt>
+              <dd>{databaseSummary?.appliedMigrations.length ?? 0}</dd>
+            </div>
+            <div>
+              <dt>Provider Profiles</dt>
+              <dd>{databaseSummary?.providerProfiles.length ?? 0}</dd>
+            </div>
+            <div>
+              <dt>Refresh</dt>
+              <dd>{isPending ? "Running" : "Idle"}</dd>
+            </div>
+          </dl>
+        </article>
+
+        <article className="panel wide">
+          <h2>Core Tables</h2>
+          <div className="table-grid">
+            {databaseSummary?.tables.map((table) => (
+              <div key={table.tableName} className="table-card">
+                <strong>{table.tableName}</strong>
+                <span>{table.rowCount} rows</span>
+              </div>
+            )) ?? <p className="empty">Waiting for schema summary...</p>}
+          </div>
+        </article>
+
+        <article className="panel wide">
+          <h2>Phase 2 Coverage</h2>
           <ul className="checklist">
-            <li>Tauri v2 app shell with Bun / Vite / React / TypeScript</li>
-            <li>Rust command IPC wired through `invoke`</li>
-            <li>SQLite initialization and health check entry points</li>
-            <li>Target module folders for collectors, analytics, tray, compat API, and models</li>
-            <li>Ready to continue with Phase 2 schema design</li>
+            <li>`request_records` table with token, latency, model, status, and JSON summary fields</li>
+            <li>`daily_usage` aggregate table keyed by `date + provider`</li>
+            <li>`sessions` table for provider/session-level metadata</li>
+            <li>`provider_profiles` table for future local compat routing and upstream credentials</li>
+            <li>Migration registry in `schema_migrations` plus repository queries for summary/profile access</li>
           </ul>
         </article>
       </section>

@@ -188,6 +188,31 @@ button:not(:disabled):active {
   margin-top: 10px;
 }
 
+.table-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.table-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: rgba(15, 23, 42, 0.56);
+  border: 1px solid rgba(148, 163, 184, 0.12);
+}
+
+.table-card strong {
+  color: #f8fafc;
+}
+
+.table-card span,
+.empty {
+  color: #cbd5e1;
+}
+
 @media (max-width: 1024px) {
   body {
     min-width: 0;

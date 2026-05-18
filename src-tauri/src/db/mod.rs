@@ -1,13 +1,15 @@
+mod migrations;
+mod repository;
+
 use std::fs;
 use std::path::PathBuf;
 
 use rusqlite::{Connection, OptionalExtension};
 use tauri::{path::BaseDirectory, AppHandle, Manager};
 
-use crate::models::DatabaseHealth;
+use crate::models::{DatabaseHealth, DatabaseSummary, ProviderProfileRecord, ProviderProfileUpsertInput};
 
 const DATABASE_FILE: &str = "countdown.db";
-const SCHEMA_VERSION: &str = "phase1";
 
 pub fn database_path(app: &AppHandle) -> Result<PathBuf, String> {
     app.path()
@@ -16,32 +18,8 @@ pub fn database_path(app: &AppHandle) -> Result<PathBuf, String> {
 }
 
 pub fn initialize(app: &AppHandle) -> Result<(), String> {
-    let database_path = database_path(app)?;
-
-    if let Some(parent) = database_path.parent() {
-        fs::create_dir_all(parent).map_err(|error| error.to_string())?;
-    }
-
-    let connection = Connection::open(&database_path).map_err(|error| error.to_string())?;
-    connection
-        .execute_batch(
-            "
-            PRAGMA journal_mode = WAL;
-            CREATE TABLE IF NOT EXISTS app_metadata (
-              key TEXT PRIMARY KEY NOT NULL,
-              value TEXT NOT NULL
-            );
-            INSERT INTO app_metadata(key, value)
-              VALUES ('schema_version', 'phase1')
-              ON CONFLICT(key) DO UPDATE SET value = excluded.value;
-            INSERT INTO app_metadata(key, value)
-              VALUES ('initialized_at', CURRENT_TIMESTAMP)
-              ON CONFLICT(key) DO NOTHING;
-            ",
-        )
-        .map_err(|error| error.to_string())?;
-
-    Ok(())
+    let connection = open_connection(app)?;
+    migrations::apply_migrations(&connection)
 }
 
 pub fn healthcheck(app: &AppHandle) -> Result<DatabaseHealth, String> {
@@ -59,10 +37,11 @@ pub fn healthcheck(app: &AppHandle) -> Result<DatabaseHealth, String> {
             writable,
             schema_version: None,
             initialized_at: None,
+            migration_count: 0,
         });
     }
 
-    let connection = Connection::open(&database_path).map_err(|error| error.to_string())?;
+    let connection = open_connection(app)?;
     let schema_version = connection
         .query_row(
             "SELECT value FROM app_metadata WHERE key = 'schema_version'",
@@ -70,8 +49,7 @@ pub fn healthcheck(app: &AppHandle) -> Result<DatabaseHealth, String> {
             |row| row.get::<_, String>(0),
         )
         .optional()
-        .map_err(|error| error.to_string())?
-        .or_else(|| Some(SCHEMA_VERSION.to_string()));
+        .map_err(|error| error.to_string())?;
 
     let initialized_at = connection
         .query_row(
@@ -82,11 +60,54 @@ pub fn healthcheck(app: &AppHandle) -> Result<DatabaseHealth, String> {
         .optional()
         .map_err(|error| error.to_string())?;
 
+    let migration_count = connection
+        .query_row("SELECT COUNT(*) FROM schema_migrations", [], |row| row.get::<_, i64>(0))
+        .unwrap_or(0);
+
     Ok(DatabaseHealth {
         database_path: database_path.display().to_string(),
         exists,
         writable,
         schema_version,
         initialized_at,
+        migration_count,
     })
+}
+
+pub fn database_summary(app: &AppHandle) -> Result<DatabaseSummary, String> {
+    let connection = open_connection(app)?;
+    repository::get_database_summary(&connection)
+}
+
+pub fn list_provider_profiles(app: &AppHandle) -> Result<Vec<ProviderProfileRecord>, String> {
+    let connection = open_connection(app)?;
+    repository::list_provider_profiles(&connection)
+}
+
+pub fn save_provider_profile(
+    app: &AppHandle,
+    input: ProviderProfileUpsertInput,
+) -> Result<ProviderProfileRecord, String> {
+    let connection = open_connection(app)?;
+    repository::upsert_provider_profile(&connection, &input)
+}
+
+fn open_connection(app: &AppHandle) -> Result<Connection, String> {
+    let database_path = database_path(app)?;
+
+    if let Some(parent) = database_path.parent() {
+        fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    }
+
+    let connection = Connection::open(database_path).map_err(|error| error.to_string())?;
+    connection
+        .execute_batch(
+            "
+            PRAGMA journal_mode = WAL;
+            PRAGMA foreign_keys = ON;
+            ",
+        )
+        .map_err(|error| error.to_string())?;
+
+    Ok(connection)
 }

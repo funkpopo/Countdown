@@ -8,6 +8,7 @@ export type BootstrapInfo = {
   databasePath: string;
   phase0Complete: boolean;
   phase1Complete: boolean;
+  phase2Complete: boolean;
 };
 
 export type DatabaseHealth = {
@@ -16,6 +17,50 @@ export type DatabaseHealth = {
   writable: boolean;
   schemaVersion: string | null;
   initializedAt: string | null;
+  migrationCount: number;
+};
+
+export type AppliedMigration = {
+  version: number;
+  name: string;
+  appliedAt: string;
+};
+
+export type TableStat = {
+  tableName: string;
+  rowCount: number;
+};
+
+export type ProviderProfileRecord = {
+  id: string;
+  providerKey: string;
+  displayName: string;
+  baseUrl: string | null;
+  apiFormat: string;
+  apiKeyEnv: string | null;
+  enabled: boolean;
+  extraJson: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ProviderProfileUpsertInput = {
+  id: string;
+  providerKey: string;
+  displayName: string;
+  baseUrl: string | null;
+  apiFormat: string;
+  apiKeyEnv: string | null;
+  enabled: boolean;
+  extraJson: string | null;
+};
+
+export type DatabaseSummary = {
+  schemaVersion: string | null;
+  initializedAt: string | null;
+  appliedMigrations: AppliedMigration[];
+  tables: TableStat[];
+  providerProfiles: ProviderProfileRecord[];
 };
 
 export async function getBootstrapInfo(): Promise<BootstrapInfo> {
@@ -28,4 +73,18 @@ export async function initializeLocalDatabase(): Promise<DatabaseHealth> {
 
 export async function databaseHealthcheck(): Promise<DatabaseHealth> {
   return invoke<DatabaseHealth>("database_healthcheck");
+}
+
+export async function getDatabaseSummary(): Promise<DatabaseSummary> {
+  return invoke<DatabaseSummary>("get_database_summary");
+}
+
+export async function listProviderProfiles(): Promise<ProviderProfileRecord[]> {
+  return invoke<ProviderProfileRecord[]>("list_provider_profiles");
+}
+
+export async function saveProviderProfile(
+  input: ProviderProfileUpsertInput,
+): Promise<ProviderProfileRecord> {
+  return invoke<ProviderProfileRecord>("save_provider_profile", { input });
 }

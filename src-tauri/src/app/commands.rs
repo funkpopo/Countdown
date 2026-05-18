@@ -1,7 +1,9 @@
 use tauri::{AppHandle, Manager};
 
 use crate::db;
-use crate::models::{BootstrapInfo, DatabaseHealth};
+use crate::models::{
+    BootstrapInfo, DatabaseHealth, DatabaseSummary, ProviderProfileRecord, ProviderProfileUpsertInput,
+};
 
 #[tauri::command]
 pub fn get_bootstrap_info(app: AppHandle) -> Result<BootstrapInfo, String> {
@@ -20,6 +22,7 @@ pub fn get_bootstrap_info(app: AppHandle) -> Result<BootstrapInfo, String> {
         database_path: database_path.display().to_string(),
         phase0_complete: true,
         phase1_complete: true,
+        phase2_complete: true,
     })
 }
 
@@ -32,4 +35,25 @@ pub fn initialize_local_database(app: AppHandle) -> Result<DatabaseHealth, Strin
 #[tauri::command]
 pub fn database_healthcheck(app: AppHandle) -> Result<DatabaseHealth, String> {
     db::healthcheck(&app)
+}
+
+#[tauri::command]
+pub fn get_database_summary(app: AppHandle) -> Result<DatabaseSummary, String> {
+    db::initialize(&app)?;
+    db::database_summary(&app)
+}
+
+#[tauri::command]
+pub fn list_provider_profiles(app: AppHandle) -> Result<Vec<ProviderProfileRecord>, String> {
+    db::initialize(&app)?;
+    db::list_provider_profiles(&app)
+}
+
+#[tauri::command]
+pub fn save_provider_profile(
+    app: AppHandle,
+    input: ProviderProfileUpsertInput,
+) -> Result<ProviderProfileRecord, String> {
+    db::initialize(&app)?;
+    db::save_provider_profile(&app, input)
 }
