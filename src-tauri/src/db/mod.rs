@@ -1,5 +1,5 @@
 mod migrations;
-mod repository;
+pub(crate) mod repository;
 
 use std::fs;
 use std::path::PathBuf;
@@ -7,7 +7,11 @@ use std::path::PathBuf;
 use rusqlite::{Connection, OptionalExtension};
 use tauri::{path::BaseDirectory, AppHandle, Manager};
 
-use crate::models::{DatabaseHealth, DatabaseSummary, ProviderProfileRecord, ProviderProfileUpsertInput};
+use crate::collectors::manager::CollectorManager;
+use crate::models::{
+    CodexOverview, CodexSyncSummary, DatabaseHealth, DatabaseSummary, ProviderProfileRecord,
+    ProviderProfileUpsertInput,
+};
 
 const DATABASE_FILE: &str = "countdown.db";
 
@@ -61,7 +65,9 @@ pub fn healthcheck(app: &AppHandle) -> Result<DatabaseHealth, String> {
         .map_err(|error| error.to_string())?;
 
     let migration_count = connection
-        .query_row("SELECT COUNT(*) FROM schema_migrations", [], |row| row.get::<_, i64>(0))
+        .query_row("SELECT COUNT(*) FROM schema_migrations", [], |row| {
+            row.get::<_, i64>(0)
+        })
         .unwrap_or(0);
 
     Ok(DatabaseHealth {
@@ -92,7 +98,17 @@ pub fn save_provider_profile(
     repository::upsert_provider_profile(&connection, &input)
 }
 
-fn open_connection(app: &AppHandle) -> Result<Connection, String> {
+pub fn sync_codex_sessions(app: &AppHandle) -> Result<CodexSyncSummary, String> {
+    let mut connection = open_connection(app)?;
+    CollectorManager::sync_codex_sessions(&mut connection)
+}
+
+pub fn codex_overview(app: &AppHandle) -> Result<CodexOverview, String> {
+    let connection = open_connection(app)?;
+    CollectorManager::get_codex_overview(&connection)
+}
+
+pub(crate) fn open_connection(app: &AppHandle) -> Result<Connection, String> {
     let database_path = database_path(app)?;
 
     if let Some(parent) = database_path.parent() {

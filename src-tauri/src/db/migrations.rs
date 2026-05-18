@@ -136,7 +136,9 @@ pub fn apply_migrations(connection: &Connection) -> Result<(), String> {
             continue;
         }
 
-        let transaction = connection.unchecked_transaction().map_err(|error| error.to_string())?;
+        let transaction = connection
+            .unchecked_transaction()
+            .map_err(|error| error.to_string())?;
         transaction
             .execute_batch(migration.sql)
             .map_err(|error| error.to_string())?;

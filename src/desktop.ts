@@ -9,6 +9,7 @@ export type BootstrapInfo = {
   phase0Complete: boolean;
   phase1Complete: boolean;
   phase2Complete: boolean;
+  phase3Complete: boolean;
 };
 
 export type DatabaseHealth = {
@@ -63,6 +64,62 @@ export type DatabaseSummary = {
   providerProfiles: ProviderProfileRecord[];
 };
 
+export type DailyUsageRecord = {
+  date: string;
+  provider: string;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  requestCount: number;
+  streamCount: number;
+  nonStreamCount: number;
+  avgTtftMs: number | null;
+  avgDurationMs: number | null;
+  updatedAt: string;
+};
+
+export type RequestRecordListItem = {
+  id: string;
+  provider: string;
+  sourceMode: string;
+  sessionId: string | null;
+  requestId: string | null;
+  model: string | null;
+  isStream: boolean;
+  inputTokens: number;
+  outputTokens: number;
+  cachedInputTokens: number;
+  reasoningTokens: number;
+  ttftMs: number | null;
+  durationMs: number | null;
+  status: string;
+  startedAt: string;
+  finishedAt: string | null;
+  cwd: string | null;
+  entrypoint: string | null;
+};
+
+export type CodexOverview = {
+  dataDir: string;
+  dataDirExists: boolean;
+  sessionCount: number;
+  requestCount: number;
+  todayUsage: DailyUsageRecord | null;
+  recentRequests: RequestRecordListItem[];
+};
+
+export type CodexSyncSummary = {
+  dataDir: string;
+  dataDirExists: boolean;
+  scannedFiles: number;
+  importedSessions: number;
+  importedRequests: number;
+  skippedIncompleteTurns: number;
+  sessionCount: number;
+  requestCount: number;
+  todayUsage: DailyUsageRecord | null;
+};
+
 export async function getBootstrapInfo(): Promise<BootstrapInfo> {
   return invoke<BootstrapInfo>("get_bootstrap_info");
 }
@@ -87,4 +144,12 @@ export async function saveProviderProfile(
   input: ProviderProfileUpsertInput,
 ): Promise<ProviderProfileRecord> {
   return invoke<ProviderProfileRecord>("save_provider_profile", { input });
+}
+
+export async function syncCodexSessions(): Promise<CodexSyncSummary> {
+  return invoke<CodexSyncSummary>("sync_codex_sessions");
+}
+
+export async function getCodexOverview(): Promise<CodexOverview> {
+  return invoke<CodexOverview>("get_codex_overview");
 }

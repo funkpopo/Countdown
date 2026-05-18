@@ -7,6 +7,7 @@ mod models;
 mod tray;
 
 use app::commands::{database_healthcheck, get_bootstrap_info, initialize_local_database};
+use app::commands::{get_codex_overview, sync_codex_sessions};
 use app::commands::{get_database_summary, list_provider_profiles, save_provider_profile};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -19,7 +20,9 @@ pub fn run() {
             database_healthcheck,
             get_database_summary,
             list_provider_profiles,
-            save_provider_profile
+            save_provider_profile,
+            sync_codex_sessions,
+            get_codex_overview
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

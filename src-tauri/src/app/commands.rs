@@ -2,7 +2,8 @@ use tauri::{AppHandle, Manager};
 
 use crate::db;
 use crate::models::{
-    BootstrapInfo, DatabaseHealth, DatabaseSummary, ProviderProfileRecord, ProviderProfileUpsertInput,
+    BootstrapInfo, CodexOverview, CodexSyncSummary, DatabaseHealth, DatabaseSummary,
+    ProviderProfileRecord, ProviderProfileUpsertInput,
 };
 
 #[tauri::command]
@@ -23,6 +24,7 @@ pub fn get_bootstrap_info(app: AppHandle) -> Result<BootstrapInfo, String> {
         phase0_complete: true,
         phase1_complete: true,
         phase2_complete: true,
+        phase3_complete: false,
     })
 }
 
@@ -56,4 +58,16 @@ pub fn save_provider_profile(
 ) -> Result<ProviderProfileRecord, String> {
     db::initialize(&app)?;
     db::save_provider_profile(&app, input)
+}
+
+#[tauri::command]
+pub fn sync_codex_sessions(app: AppHandle) -> Result<CodexSyncSummary, String> {
+    db::initialize(&app)?;
+    db::sync_codex_sessions(&app)
+}
+
+#[tauri::command]
+pub fn get_codex_overview(app: AppHandle) -> Result<CodexOverview, String> {
+    db::initialize(&app)?;
+    db::codex_overview(&app)
 }
