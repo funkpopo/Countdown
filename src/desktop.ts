@@ -11,6 +11,9 @@ export type BootstrapInfo = {
   phase2Complete: boolean;
   phase3Complete: boolean;
   phase4Complete: boolean;
+  phase5Complete: boolean;
+  phase6Complete: boolean;
+  phase7Complete: boolean;
 };
 
 export type DatabaseHealth = {
@@ -198,6 +201,13 @@ export type CombinedTodayUsage = {
   lastRefreshAt: string;
 };
 
+export type CompatApiStatus = {
+  running: boolean;
+  listenAddress: string;
+  startedAt: string | null;
+  profilesCount: number;
+};
+
 export async function getBootstrapInfo(): Promise<BootstrapInfo> {
   return invoke<BootstrapInfo>("get_bootstrap_info");
 }
@@ -222,6 +232,12 @@ export async function saveProviderProfile(
   input: ProviderProfileUpsertInput,
 ): Promise<ProviderProfileRecord> {
   return invoke<ProviderProfileRecord>("save_provider_profile", { input });
+}
+
+export async function saveProviderProfilesBatch(
+  inputs: ProviderProfileUpsertInput[],
+): Promise<ProviderProfileRecord[]> {
+  return invoke<ProviderProfileRecord[]>("save_provider_profiles_batch", { inputs });
 }
 
 export async function syncCodexSessions(): Promise<CodexSyncSummary> {
@@ -252,4 +268,16 @@ export async function listFilteredRequests(
 
 export async function getRequestDetail(id: string): Promise<RequestRecordDetail> {
   return invoke<RequestRecordDetail>("get_request_detail", { id });
+}
+
+export async function startCompatApiServer(listenAddress: string): Promise<CompatApiStatus> {
+  return invoke<CompatApiStatus>("start_compat_api_server", { listenAddress });
+}
+
+export async function stopCompatApiServer(): Promise<CompatApiStatus> {
+  return invoke<CompatApiStatus>("stop_compat_api_server");
+}
+
+export async function getCompatApiStatus(): Promise<CompatApiStatus> {
+  return invoke<CompatApiStatus>("get_compat_api_status");
 }

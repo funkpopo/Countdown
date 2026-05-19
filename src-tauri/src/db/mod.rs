@@ -91,12 +91,26 @@ pub fn list_provider_profiles(app: &AppHandle) -> Result<Vec<ProviderProfileReco
     repository::list_provider_profiles(&connection)
 }
 
+pub fn list_provider_profiles_from_conn(
+    connection: &Connection,
+) -> Result<Vec<ProviderProfileRecord>, String> {
+    repository::list_provider_profiles(connection)
+}
+
 pub fn save_provider_profile(
     app: &AppHandle,
     input: ProviderProfileUpsertInput,
 ) -> Result<ProviderProfileRecord, String> {
     let connection = open_connection(app)?;
     repository::upsert_provider_profile(&connection, &input)
+}
+
+pub fn save_provider_profiles_batch(
+    app: &AppHandle,
+    inputs: Vec<ProviderProfileUpsertInput>,
+) -> Result<Vec<ProviderProfileRecord>, String> {
+    let mut connection = open_connection(app)?;
+    repository::upsert_provider_profiles(&mut connection, &inputs)
 }
 
 pub fn sync_codex_sessions(app: &AppHandle) -> Result<CodexSyncSummary, String> {
@@ -155,4 +169,22 @@ pub(crate) fn open_connection(app: &AppHandle) -> Result<Connection, String> {
         .map_err(|error| error.to_string())?;
 
     Ok(connection)
+}
+
+pub fn get_connection(app: &AppHandle) -> Result<Connection, String> {
+    open_connection(app)
+}
+
+pub fn upsert_request_record(
+    connection: &Connection,
+    record: &crate::models::RequestRecordUpsertRecord,
+) -> Result<(), String> {
+    repository::upsert_request_record(connection, record)
+}
+
+pub fn rebuild_daily_usage_for_provider(
+    connection: &Connection,
+    provider: &str,
+) -> Result<(), String> {
+    repository::rebuild_daily_usage_for_provider(connection, provider)
 }

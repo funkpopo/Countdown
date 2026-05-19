@@ -1,9 +1,10 @@
 use tauri::{AppHandle, Manager};
 
+use crate::compat_api::CompatApiServer;
 use crate::db;
 use crate::models::{
     BootstrapInfo, ClaudeCodeSyncSummary, ClaudeOverview, CodexOverview, CodexSyncSummary,
-    CombinedTodayUsage, DatabaseHealth, DatabaseSummary, PaginatedRequestRecords,
+    CombinedTodayUsage, CompatApiStatus, DatabaseHealth, DatabaseSummary, PaginatedRequestRecords,
     ProviderProfileRecord, ProviderProfileUpsertInput, RequestFilterInput, RequestRecordDetail,
 };
 
@@ -27,6 +28,9 @@ pub fn get_bootstrap_info(app: AppHandle) -> Result<BootstrapInfo, String> {
         phase2_complete: true,
         phase3_complete: true,
         phase4_complete: true,
+        phase5_complete: true,
+        phase6_complete: true,
+        phase7_complete: true,
     })
 }
 
@@ -60,6 +64,15 @@ pub fn save_provider_profile(
 ) -> Result<ProviderProfileRecord, String> {
     db::initialize(&app)?;
     db::save_provider_profile(&app, input)
+}
+
+#[tauri::command]
+pub fn save_provider_profiles_batch(
+    app: AppHandle,
+    inputs: Vec<ProviderProfileUpsertInput>,
+) -> Result<Vec<ProviderProfileRecord>, String> {
+    db::initialize(&app)?;
+    db::save_provider_profiles_batch(&app, inputs)
 }
 
 #[tauri::command]
@@ -119,4 +132,37 @@ pub fn list_filtered_requests(
 pub fn get_request_detail(app: AppHandle, id: String) -> Result<RequestRecordDetail, String> {
     db::initialize(&app)?;
     db::get_request_detail(&app, id)
+}
+
+#[tauri::command]
+pub async fn start_compat_api_server(
+    app: AppHandle,
+    listen_address: String,
+) -> Result<CompatApiStatus, String> {
+    let server = CompatApiServer::new(app.clone(), listen_address);
+    app.manage(server);
+
+    let server = app.state::<CompatApiServer>();
+    server.start().await?;
+    Ok(server.get_status().await)
+}
+
+#[tauri::command]
+pub async fn stop_compat_api_server(app: AppHandle) -> Result<CompatApiStatus, String> {
+    let server = app.state::<CompatApiServer>();
+    server.stop().await?;
+    Ok(server.get_status().await)
+}
+
+#[tauri::command]
+pub async fn get_compat_api_status(app: AppHandle) -> Result<CompatApiStatus, String> {
+    match app.try_state::<CompatApiServer>() {
+        Some(server) => Ok(server.get_status().await),
+        None => Ok(CompatApiStatus {
+            running: false,
+            listen_address: "127.0.0.1:8688".to_string(),
+            started_at: None,
+            profiles_count: 0,
+        }),
+    }
 }

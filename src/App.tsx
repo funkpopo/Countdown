@@ -1,24 +1,21 @@
 import { useEffect, useState, useTransition } from "react";
 import {
-  databaseHealthcheck,
-  getBootstrapInfo,
   getClaudeCodeOverview,
   getCodexOverview,
   getDatabaseSummary,
   initializeLocalDatabase,
   syncClaudeCodeSessions,
   syncCodexSessions,
-  type BootstrapInfo,
   type ClaudeCodeSyncSummary,
   type ClaudeOverview,
   type CodexOverview,
   type CodexSyncSummary,
-  type DatabaseHealth,
-  type DatabaseSummary,
   type DailyUsageRecord,
+  type DatabaseSummary,
   type RequestRecordListItem,
 } from "./desktop";
 import Requests from "./Requests";
+import Settings from "./Settings";
 import "./App.css";
 
 function formatNumber(value: number | null | undefined) {
@@ -88,8 +85,6 @@ function renderRequestRow(request: RequestRecordListItem) {
 }
 
 function App() {
-  const [bootstrapInfo, setBootstrapInfo] = useState<BootstrapInfo | null>(null);
-  const [databaseHealth, setDatabaseHealth] = useState<DatabaseHealth | null>(null);
   const [databaseSummary, setDatabaseSummary] = useState<DatabaseSummary | null>(null);
   const [codexOverview, setCodexOverview] = useState<CodexOverview | null>(null);
   const [claudeOverview, setClaudeOverview] = useState<ClaudeOverview | null>(null);
@@ -97,21 +92,17 @@ function App() {
   const [lastClaudeSync, setLastClaudeSync] = useState<ClaudeCodeSyncSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
-  const [currentPage, setCurrentPage] = useState<"overview" | "requests">("overview");
+  const [currentPage, setCurrentPage] = useState<"overview" | "requests" | "settings">("overview");
 
   const refresh = () => {
     startTransition(async () => {
       try {
         setError(null);
-        const [bootstrap, health, summary, codex, claude] = await Promise.all([
-          getBootstrapInfo(),
-          databaseHealthcheck(),
+        const [summary, codex, claude] = await Promise.all([
           getDatabaseSummary(),
           getCodexOverview(),
           getClaudeCodeOverview(),
         ]);
-        setBootstrapInfo(bootstrap);
-        setDatabaseHealth(health);
         setDatabaseSummary(summary);
         setCodexOverview(codex);
         setClaudeOverview(claude);
@@ -147,10 +138,7 @@ function App() {
         setError(null);
         const syncSummary = await syncCodexSessions();
         setLastCodexSync(syncSummary);
-        const [summary, overview] = await Promise.all([
-          getDatabaseSummary(),
-          getCodexOverview(),
-        ]);
+        const [summary, overview] = await Promise.all([getDatabaseSummary(), getCodexOverview()]);
         setDatabaseSummary(summary);
         setCodexOverview(overview);
       } catch (syncError) {
@@ -172,24 +160,24 @@ function App() {
         setDatabaseSummary(summary);
         setClaudeOverview(overview);
       } catch (syncError) {
-        setError(syncError instanceof Error ? syncError.message : "Failed to sync Claude Code data.");
+        setError(
+          syncError instanceof Error ? syncError.message : "Failed to sync Claude Code data.",
+        );
       }
     });
   };
 
-  const codexTodayUsage: DailyUsageRecord | null = codexOverview?.todayUsage ?? lastCodexSync?.todayUsage ?? null;
-  const claudeTodayUsage: DailyUsageRecord | null = claudeOverview?.todayUsage ?? lastClaudeSync?.todayUsage ?? null;
+  const codexTodayUsage: DailyUsageRecord | null =
+    codexOverview?.todayUsage ?? lastCodexSync?.todayUsage ?? null;
+  const claudeTodayUsage: DailyUsageRecord | null =
+    claudeOverview?.todayUsage ?? lastClaudeSync?.todayUsage ?? null;
 
   if (currentPage === "requests") {
     return (
       <div className="app-shell">
         <nav className="top-nav">
-          <button
-            type="button"
-            className="secondary"
-            onClick={() => setCurrentPage("overview")}
-          >
-            ← Back to Overview
+          <button type="button" className="secondary" onClick={() => setCurrentPage("overview")}>
+            Back
           </button>
           <h2>Request Records</h2>
         </nav>
@@ -198,35 +186,47 @@ function App() {
     );
   }
 
+  if (currentPage === "settings") {
+    return (
+      <div className="app-shell">
+        <nav className="top-nav">
+          <button type="button" className="secondary" onClick={() => setCurrentPage("overview")}>
+            Back
+          </button>
+          <h2>Settings</h2>
+        </nav>
+        <Settings />
+      </div>
+    );
+  }
+
   return (
     <main className="shell">
-      <section className="hero">
+      <section className="workspace-header">
         <div>
-          <p className="eyebrow">Phase 4 / Claude Code Collector</p>
-          <h1>Countdown Desktop</h1>
-          <p className="lede">
-            Passive Claude Code session ingest from local project JSONL files. The app now imports
-            Claude Code history alongside Codex data, normalizes token usage, and exposes request
-            records without proxying traffic.
+          <h1>Countdown</h1>
+          <p className="workspace-meta">
+            {formatNumber(databaseSummary?.providerProfiles.length)} profiles ·{" "}
+            {formatNumber(codexOverview?.requestCount)} Codex requests ·{" "}
+            {formatNumber(claudeOverview?.requestCount)} Claude requests
           </p>
         </div>
 
-        <div className="actions">
-          <button type="button" onClick={refresh} disabled={isPending}>
-            Refresh State
-          </button>
+        <div className="toolbar">
           <button type="button" onClick={handleSyncCodex} disabled={isPending}>
-            Sync Codex Sessions
+            Sync Codex
           </button>
           <button type="button" onClick={handleSyncClaude} disabled={isPending}>
-            Sync Claude Code Sessions
+            Sync Claude
           </button>
-          <button
-            type="button"
-            className="secondary"
-            onClick={() => setCurrentPage("requests")}
-          >
-            View All Requests
+          <button type="button" className="secondary" onClick={() => setCurrentPage("requests")}>
+            Requests
+          </button>
+          <button type="button" className="secondary" onClick={() => setCurrentPage("settings")}>
+            Settings
+          </button>
+          <button type="button" className="secondary" onClick={refresh} disabled={isPending}>
+            Refresh
           </button>
           <button
             type="button"
@@ -234,7 +234,7 @@ function App() {
             onClick={handleInitializeDatabase}
             disabled={isPending}
           >
-            Initialize SQLite
+            Init DB
           </button>
         </div>
       </section>
@@ -243,23 +243,24 @@ function App() {
 
       {lastCodexSync ? (
         <section className="notice">
-          Synced {formatNumber(lastCodexSync.importedRequests)} Codex requests from{" "}
-          {formatNumber(lastCodexSync.scannedFiles)} rollout files. Skipped{" "}
-          {formatNumber(lastCodexSync.skippedIncompleteTurns)} incomplete turns.
+          Codex imported {formatNumber(lastCodexSync.importedRequests)} requests from{" "}
+          {formatNumber(lastCodexSync.scannedFiles)} files.
         </section>
       ) : null}
 
       {lastClaudeSync ? (
         <section className="notice">
-          Synced {formatNumber(lastClaudeSync.importedRequests)} Claude Code requests from{" "}
-          {formatNumber(lastClaudeSync.scannedFiles)} project files. Skipped{" "}
-          {formatNumber(lastClaudeSync.skippedIncompleteSessions)} incomplete sessions.
+          Claude imported {formatNumber(lastClaudeSync.importedRequests)} requests from{" "}
+          {formatNumber(lastClaudeSync.scannedFiles)} files.
         </section>
       ) : null}
 
       <section className="grid">
         <article className="panel">
-          <h2>Today&apos;s Codex Usage</h2>
+          <div className="panel-header">
+            <h2>Codex Today</h2>
+            <span className="panel-meta">{formatNumber(codexOverview?.sessionCount)} sessions</span>
+          </div>
           <div className="stats-grid">
             {renderUsageStat("Input", formatNumber(codexTodayUsage?.inputTokens))}
             {renderUsageStat("Output", formatNumber(codexTodayUsage?.outputTokens))}
@@ -271,7 +272,12 @@ function App() {
         </article>
 
         <article className="panel">
-          <h2>Today&apos;s Claude Code Usage</h2>
+          <div className="panel-header">
+            <h2>Claude Today</h2>
+            <span className="panel-meta">
+              {formatNumber(claudeOverview?.sessionCount)} sessions
+            </span>
+          </div>
           <div className="stats-grid">
             {renderUsageStat("Input", formatNumber(claudeTodayUsage?.inputTokens))}
             {renderUsageStat("Output", formatNumber(claudeTodayUsage?.outputTokens))}
@@ -282,138 +288,11 @@ function App() {
           </div>
         </article>
 
-        <article className="panel">
-          <h2>Phase Status</h2>
-          <dl className="facts">
-            <div>
-              <dt>Phase 0</dt>
-              <dd>{bootstrapInfo?.phase0Complete ? "Completed" : "Pending"}</dd>
-            </div>
-            <div>
-              <dt>Phase 1</dt>
-              <dd>{bootstrapInfo?.phase1Complete ? "Completed" : "Pending"}</dd>
-            </div>
-            <div>
-              <dt>Phase 2</dt>
-              <dd>{bootstrapInfo?.phase2Complete ? "Completed" : "Pending"}</dd>
-            </div>
-            <div>
-              <dt>Phase 3</dt>
-              <dd>{bootstrapInfo?.phase3Complete ? "Completed" : "In Progress"}</dd>
-            </div>
-            <div>
-              <dt>Phase 4</dt>
-              <dd>{bootstrapInfo?.phase4Complete ? "Completed" : "In Progress"}</dd>
-            </div>
-          </dl>
-        </article>
-
         <article className="panel wide">
-          <h2>Codex Data Source</h2>
-          <dl className="facts">
-            <div>
-              <dt>Sessions Dir</dt>
-              <dd className="mono">{codexOverview?.dataDir ?? "Resolving..."}</dd>
-            </div>
-            <div>
-              <dt>Dir Exists</dt>
-              <dd>{String(codexOverview?.dataDirExists ?? false)}</dd>
-            </div>
-            <div>
-              <dt>Imported Sessions</dt>
-              <dd>{formatNumber(codexOverview?.sessionCount)}</dd>
-            </div>
-            <div>
-              <dt>Imported Requests</dt>
-              <dd>{formatNumber(codexOverview?.requestCount)}</dd>
-            </div>
-            <div>
-              <dt>Last Sync Files</dt>
-              <dd>{formatNumber(lastCodexSync?.scannedFiles)}</dd>
-            </div>
-            <div>
-              <dt>Incomplete Turns</dt>
-              <dd>{formatNumber(lastCodexSync?.skippedIncompleteTurns)}</dd>
-            </div>
-          </dl>
-        </article>
-
-        <article className="panel wide">
-          <h2>Claude Code Data Source</h2>
-          <dl className="facts">
-            <div>
-              <dt>Data Dir</dt>
-              <dd className="mono">{claudeOverview?.dataDir ?? "Resolving..."}</dd>
-            </div>
-            <div>
-              <dt>Dir Exists</dt>
-              <dd>{String(claudeOverview?.dataDirExists ?? false)}</dd>
-            </div>
-            <div>
-              <dt>Imported Sessions</dt>
-              <dd>{formatNumber(claudeOverview?.sessionCount)}</dd>
-            </div>
-            <div>
-              <dt>Imported Requests</dt>
-              <dd>{formatNumber(claudeOverview?.requestCount)}</dd>
-            </div>
-            <div>
-              <dt>Last Sync Files</dt>
-              <dd>{formatNumber(lastClaudeSync?.scannedFiles)}</dd>
-            </div>
-            <div>
-              <dt>Incomplete Sessions</dt>
-              <dd>{formatNumber(lastClaudeSync?.skippedIncompleteSessions)}</dd>
-            </div>
-          </dl>
-        </article>
-
-        <article className="panel">
-          <h2>App Runtime</h2>
-          <dl className="facts">
-            <div>
-              <dt>Product</dt>
-              <dd>{bootstrapInfo?.productName ?? "Loading..."}</dd>
-            </div>
-            <div>
-              <dt>Version</dt>
-              <dd>{bootstrapInfo?.version ?? "Loading..."}</dd>
-            </div>
-            <div>
-              <dt>Identifier</dt>
-              <dd>{bootstrapInfo?.identifier ?? "Loading..."}</dd>
-            </div>
-            <div>
-              <dt>App Data Dir</dt>
-              <dd className="mono">{bootstrapInfo?.appDataDir ?? "Loading..."}</dd>
-            </div>
-          </dl>
-        </article>
-
-        <article className="panel">
-          <h2>SQLite Health</h2>
-          <dl className="facts">
-            <div>
-              <dt>Database Path</dt>
-              <dd className="mono">{databaseHealth?.databasePath ?? "Not resolved yet"}</dd>
-            </div>
-            <div>
-              <dt>Exists</dt>
-              <dd>{databaseHealth ? String(databaseHealth.exists) : "Unknown"}</dd>
-            </div>
-            <div>
-              <dt>Writable</dt>
-              <dd>{databaseHealth ? String(databaseHealth.writable) : "Unknown"}</dd>
-            </div>
-            <div>
-              <dt>Migrations</dt>
-              <dd>{databaseHealth?.migrationCount ?? 0}</dd>
-            </div>
-          </dl>
-        </article>
-
-        <article className="panel wide">
-          <h2>Recent Codex Requests</h2>
+          <div className="panel-header">
+            <h2>Recent Codex Requests</h2>
+            <span className="panel-meta mono">{codexOverview?.dataDir ?? "resolving"}</span>
+          </div>
           {codexOverview?.recentRequests.length ? (
             <div className="table-shell">
               <table className="request-table">
@@ -435,15 +314,15 @@ function App() {
               </table>
             </div>
           ) : (
-            <p className="empty">
-              No Codex requests imported yet. Run <code>Sync Codex Sessions</code> to ingest local
-              rollout history.
-            </p>
+            <p className="empty">No Codex requests yet.</p>
           )}
         </article>
 
         <article className="panel wide">
-          <h2>Recent Claude Code Requests</h2>
+          <div className="panel-header">
+            <h2>Recent Claude Requests</h2>
+            <span className="panel-meta mono">{claudeOverview?.dataDir ?? "resolving"}</span>
+          </div>
           {claudeOverview?.recentRequests.length ? (
             <div className="table-shell">
               <table className="request-table">
@@ -465,15 +344,15 @@ function App() {
               </table>
             </div>
           ) : (
-            <p className="empty">
-              No Claude Code requests imported yet. Run <code>Sync Claude Code Sessions</code> to
-              ingest local project history.
-            </p>
+            <p className="empty">No Claude requests yet.</p>
           )}
         </article>
 
         <article className="panel wide">
-          <h2>Schema Summary</h2>
+          <div className="panel-header">
+            <h2>Storage</h2>
+            <span className="panel-meta">{formatNumber(databaseSummary?.tables.length)} tables</span>
+          </div>
           <div className="table-grid">
             {databaseSummary?.tables.map((table) => (
               <div key={table.tableName} className="table-card">
@@ -482,29 +361,6 @@ function App() {
               </div>
             )) ?? <p className="empty">Waiting for schema summary...</p>}
           </div>
-        </article>
-
-        <article className="panel wide">
-          <h2>Phase 3 Coverage</h2>
-          <ul className="checklist">
-            <li>Scans local `~/.codex/sessions/**/*.jsonl` rollout files without proxying traffic.</li>
-            <li>Normalizes session metadata, tokens, TTFT, duration, model, and stream heuristic into SQLite.</li>
-            <li>Rebuilds `daily_usage` for provider `codex` and exposes today&apos;s totals to the UI.</li>
-            <li>Lists recent request records with input/output tokens, TTFT, duration, and stream type.</li>
-          </ul>
-        </article>
-
-        <article className="panel wide">
-          <h2>Phase 4 Coverage</h2>
-          <ul className="checklist">
-            <li>Scans local `~/.claude/projects/**/*.jsonl` project files without proxying traffic.</li>
-            <li>Parses assistant messages for model, token usage, cache tokens, and content summary.</li>
-            <li>Reads `~/.claude/sessions/*.json` for session metadata overrides (cwd, entrypoint, startedAt).</li>
-            <li>Normalizes session and request records into SQLite with `claude_code` provider.</li>
-            <li>Rebuilds `daily_usage` for provider `claude_code` and exposes today&apos;s totals to the UI.</li>
-            <li>Lists recent Claude Code request records with input/output/cache tokens and model.</li>
-            <li>TTFT and duration_ms are null for passive ingest (available via Managed Launch in future).</li>
-          </ul>
         </article>
       </section>
     </main>

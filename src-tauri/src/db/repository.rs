@@ -1,9 +1,10 @@
 use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::models::{
-    AppliedMigration, CombinedTodayUsage, DailyUsageRecord, DatabaseSummary, PaginatedRequestRecords,
-    ProviderProfileRecord, ProviderProfileUpsertInput, RequestFilterInput, RequestRecordDetail,
-    RequestRecordListItem, RequestRecordUpsertRecord, SessionUpsertRecord, TableStat,
+    AppliedMigration, CombinedTodayUsage, DailyUsageRecord, DatabaseSummary,
+    PaginatedRequestRecords, ProviderProfileRecord, ProviderProfileUpsertInput, RequestFilterInput,
+    RequestRecordDetail, RequestRecordListItem, RequestRecordUpsertRecord, SessionUpsertRecord,
+    TableStat,
 };
 
 const CORE_TABLES: &[&str] = &[
@@ -122,6 +123,8 @@ pub fn upsert_provider_profile(
     connection: &Connection,
     input: &ProviderProfileUpsertInput,
 ) -> Result<ProviderProfileRecord, String> {
+    let target_id = resolve_provider_profile_target_id(connection, input)?;
+
     connection
         .execute(
             "
@@ -150,7 +153,7 @@ pub fn upsert_provider_profile(
               updated_at = CURRENT_TIMESTAMP
             ",
             params![
-                input.id,
+                target_id,
                 input.provider_key,
                 input.display_name,
                 input.base_url,
@@ -162,6 +165,59 @@ pub fn upsert_provider_profile(
         )
         .map_err(|error| error.to_string())?;
 
+    get_provider_profile_by_id(connection, &target_id)
+}
+
+pub fn upsert_provider_profiles(
+    connection: &mut Connection,
+    inputs: &[ProviderProfileUpsertInput],
+) -> Result<Vec<ProviderProfileRecord>, String> {
+    let transaction = connection
+        .unchecked_transaction()
+        .map_err(|error| error.to_string())?;
+    let mut records = Vec::with_capacity(inputs.len());
+
+    for input in inputs {
+        records.push(upsert_provider_profile(&transaction, input)?);
+    }
+
+    transaction.commit().map_err(|error| error.to_string())?;
+    Ok(records)
+}
+
+fn resolve_provider_profile_target_id(
+    connection: &Connection,
+    input: &ProviderProfileUpsertInput,
+) -> Result<String, String> {
+    let existing_by_id = connection
+        .query_row(
+            "SELECT id FROM provider_profiles WHERE id = ?1",
+            [input.id.as_str()],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(|error| error.to_string())?;
+
+    if let Some(existing_id) = existing_by_id {
+        return Ok(existing_id);
+    }
+
+    let existing_by_key = connection
+        .query_row(
+            "SELECT id FROM provider_profiles WHERE provider_key = ?1",
+            [input.provider_key.as_str()],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(|error| error.to_string())?;
+
+    Ok(existing_by_key.unwrap_or_else(|| input.id.clone()))
+}
+
+fn get_provider_profile_by_id(
+    connection: &Connection,
+    id: &str,
+) -> Result<ProviderProfileRecord, String> {
     connection
         .query_row(
             "
@@ -179,7 +235,7 @@ pub fn upsert_provider_profile(
             FROM provider_profiles
             WHERE id = ?1
             ",
-            [input.id.as_str()],
+            [id],
             |row| {
                 Ok(ProviderProfileRecord {
                     id: row.get(0)?,
@@ -592,13 +648,14 @@ pub fn list_filtered_request_records(
         format!("WHERE {}", where_clauses.join(" AND "))
     };
 
-    let count_sql = format!(
-        "SELECT COUNT(*) FROM request_records rr {}",
-        where_sql
-    );
+    let count_sql = format!("SELECT COUNT(*) FROM request_records rr {}", where_sql);
 
     let total: i64 = connection
-        .query_row(&count_sql, rusqlite::params_from_iter(param_values.iter().map(|v| v.as_ref())), |row| row.get(0))
+        .query_row(
+            &count_sql,
+            rusqlite::params_from_iter(param_values.iter().map(|v| v.as_ref())),
+            |row| row.get(0),
+        )
         .map_err(|error| error.to_string())?;
 
     let data_sql = format!(

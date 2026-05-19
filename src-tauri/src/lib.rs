@@ -10,8 +10,9 @@ use app::commands::{database_healthcheck, get_bootstrap_info, initialize_local_d
 use app::commands::{get_claude_code_overview, sync_claude_code_sessions};
 use app::commands::{get_codex_overview, sync_codex_sessions};
 use app::commands::{get_combined_today_usage, get_database_summary};
-use app::commands::{list_provider_profiles, save_provider_profile};
+use app::commands::{get_compat_api_status, start_compat_api_server, stop_compat_api_server};
 use app::commands::{get_request_detail, list_filtered_requests};
+use app::commands::{list_provider_profiles, save_provider_profile, save_provider_profiles_batch};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -35,13 +36,17 @@ pub fn run() {
             get_database_summary,
             list_provider_profiles,
             save_provider_profile,
+            save_provider_profiles_batch,
             sync_codex_sessions,
             get_codex_overview,
             sync_claude_code_sessions,
             get_claude_code_overview,
             get_combined_today_usage,
             list_filtered_requests,
-            get_request_detail
+            get_request_detail,
+            start_compat_api_server,
+            stop_compat_api_server,
+            get_compat_api_status
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

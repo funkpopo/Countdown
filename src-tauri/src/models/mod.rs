@@ -13,6 +13,9 @@ pub struct BootstrapInfo {
     pub phase2_complete: bool,
     pub phase3_complete: bool,
     pub phase4_complete: bool,
+    pub phase5_complete: bool,
+    pub phase6_complete: bool,
+    pub phase7_complete: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -267,4 +270,201 @@ pub struct PaginatedRequestRecords {
     pub total: i64,
     pub limit: i64,
     pub offset: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NormalizedRequest {
+    pub provider_kind: String,
+    pub upstream_kind: String,
+    pub model: String,
+    pub messages_or_input: serde_json::Value,
+    pub tools: Option<serde_json::Value>,
+    pub temperature: Option<f64>,
+    pub max_tokens: Option<i64>,
+    pub stream: bool,
+    pub metadata: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NormalizedResponse {
+    pub request_id: String,
+    pub model: String,
+    pub input_tokens: i64,
+    pub output_tokens: i64,
+    pub finish_reason: String,
+    pub duration_ms: i64,
+    pub ttft_ms: Option<i64>,
+    pub raw_protocol: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenAIChatCompletionRequest {
+    pub model: String,
+    pub messages: Vec<OpenAIChatMessage>,
+    pub tools: Option<Vec<serde_json::Value>>,
+    pub temperature: Option<f64>,
+    pub max_tokens: Option<i64>,
+    pub stream: Option<bool>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenAIChatMessage {
+    pub role: String,
+    pub content: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenAIChatCompletionResponse {
+    pub id: String,
+    pub object: String,
+    pub created: i64,
+    pub model: String,
+    pub choices: Vec<OpenAIChatChoice>,
+    pub usage: OpenAIUsage,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenAIChatChoice {
+    pub index: i64,
+    pub message: OpenAIChatMessage,
+    pub finish_reason: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenAIUsage {
+    pub prompt_tokens: i64,
+    pub completion_tokens: i64,
+    pub total_tokens: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenAIChatCompletionChunk {
+    pub id: String,
+    pub object: String,
+    pub created: i64,
+    pub model: String,
+    pub choices: Vec<OpenAIChatChunkChoice>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenAIChatChunkChoice {
+    pub index: i64,
+    pub delta: OpenAIChatMessage,
+    pub finish_reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenAIResponsesRequest {
+    pub model: String,
+    pub input: serde_json::Value,
+    pub tools: Option<Vec<serde_json::Value>>,
+    pub temperature: Option<f64>,
+    pub max_output_tokens: Option<i64>,
+    pub stream: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenAIResponsesResponse {
+    pub id: String,
+    pub object: String,
+    pub created_at: i64,
+    pub model: String,
+    pub output: Vec<serde_json::Value>,
+    pub usage: OpenAIUsage,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenAIResponsesStreamChunk {
+    pub id: String,
+    pub object: String,
+    pub created_at: i64,
+    pub model: String,
+    pub delta: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AnthropicMessagesRequest {
+    pub model: String,
+    pub messages: Vec<AnthropicMessage>,
+    pub system: Option<serde_json::Value>,
+    pub tools: Option<Vec<serde_json::Value>>,
+    pub temperature: Option<f64>,
+    pub max_tokens: i64,
+    pub stream: Option<bool>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AnthropicMessage {
+    pub role: String,
+    pub content: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AnthropicMessagesResponse {
+    pub id: String,
+    #[serde(rename = "type")]
+    pub type_field: String,
+    pub role: String,
+    pub model: String,
+    pub content: Vec<serde_json::Value>,
+    pub usage: AnthropicUsage,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AnthropicUsage {
+    pub input_tokens: i64,
+    pub output_tokens: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AnthropicStreamEvent {
+    pub type_field: String,
+    pub message: Option<AnthropicStreamMessage>,
+    pub delta: Option<AnthropicStreamDelta>,
+    pub usage: Option<AnthropicUsage>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AnthropicStreamMessage {
+    pub id: String,
+    #[serde(rename = "type")]
+    pub type_field: String,
+    pub role: String,
+    pub model: String,
+    pub content: Vec<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AnthropicStreamDelta {
+    #[serde(rename = "type")]
+    pub type_field: String,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CompatApiStatus {
+    pub running: bool,
+    pub listen_address: String,
+    pub started_at: Option<String>,
+    pub profiles_count: i64,
 }
