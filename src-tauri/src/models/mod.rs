@@ -223,3 +223,48 @@ pub struct RequestRecordUpsertRecord {
     pub response_summary_json: Option<String>,
     pub error_text: Option<String>,
 }
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RequestRecordDetail {
+    pub id: String,
+    pub provider: String,
+    pub source_mode: String,
+    pub session_id: Option<String>,
+    pub request_id: Option<String>,
+    pub model: Option<String>,
+    pub is_stream: bool,
+    pub input_tokens: i64,
+    pub output_tokens: i64,
+    pub cached_input_tokens: i64,
+    pub reasoning_tokens: i64,
+    pub ttft_ms: Option<i64>,
+    pub duration_ms: Option<i64>,
+    pub status: String,
+    pub started_at: String,
+    pub finished_at: Option<String>,
+    pub cwd: Option<String>,
+    pub entrypoint: Option<String>,
+    pub request_summary_json: Option<String>,
+    pub response_summary_json: Option<String>,
+    pub error_text: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RequestFilterInput {
+    pub provider: Option<String>,
+    pub model: Option<String>,
+    pub is_stream: Option<bool>,
+    pub limit: Option<i64>,
+    pub offset: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PaginatedRequestRecords {
+    pub records: Vec<RequestRecordListItem>,
+    pub total: i64,
+    pub limit: i64,
+    pub offset: i64,
+}

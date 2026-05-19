@@ -1,9 +1,9 @@
 use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::models::{
-    AppliedMigration, CombinedTodayUsage, DailyUsageRecord, DatabaseSummary, ProviderProfileRecord,
-    ProviderProfileUpsertInput, RequestRecordListItem, RequestRecordUpsertRecord,
-    SessionUpsertRecord, TableStat,
+    AppliedMigration, CombinedTodayUsage, DailyUsageRecord, DatabaseSummary, PaginatedRequestRecords,
+    ProviderProfileRecord, ProviderProfileUpsertInput, RequestFilterInput, RequestRecordDetail,
+    RequestRecordListItem, RequestRecordUpsertRecord, SessionUpsertRecord, TableStat,
 };
 
 const CORE_TABLES: &[&str] = &[
@@ -555,4 +555,176 @@ fn query_table_count(connection: &Connection, table_name: &str) -> Result<i64, S
     connection
         .query_row(&sql, [], |row| row.get::<_, i64>(0))
         .map_err(|error| error.to_string())
+}
+
+pub fn list_filtered_request_records(
+    connection: &Connection,
+    filter: &RequestFilterInput,
+) -> Result<PaginatedRequestRecords, String> {
+    let limit = filter.limit.unwrap_or(50);
+    let offset = filter.offset.unwrap_or(0);
+
+    let mut where_clauses = Vec::new();
+    let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+    let mut param_index = 1;
+
+    if let Some(ref provider) = filter.provider {
+        where_clauses.push(format!("rr.provider = ?{}", param_index));
+        param_values.push(Box::new(provider.clone()));
+        param_index += 1;
+    }
+
+    if let Some(ref model) = filter.model {
+        where_clauses.push(format!("rr.model = ?{}", param_index));
+        param_values.push(Box::new(model.clone()));
+        param_index += 1;
+    }
+
+    if let Some(is_stream) = filter.is_stream {
+        where_clauses.push(format!("rr.is_stream = ?{}", param_index));
+        param_values.push(Box::new(i64::from(is_stream)));
+        param_index += 1;
+    }
+
+    let where_sql = if where_clauses.is_empty() {
+        String::new()
+    } else {
+        format!("WHERE {}", where_clauses.join(" AND "))
+    };
+
+    let count_sql = format!(
+        "SELECT COUNT(*) FROM request_records rr {}",
+        where_sql
+    );
+
+    let total: i64 = connection
+        .query_row(&count_sql, rusqlite::params_from_iter(param_values.iter().map(|v| v.as_ref())), |row| row.get(0))
+        .map_err(|error| error.to_string())?;
+
+    let data_sql = format!(
+        "
+        SELECT
+          rr.id,
+          rr.provider,
+          rr.source_mode,
+          rr.session_id,
+          rr.request_id,
+          rr.model,
+          rr.is_stream,
+          rr.input_tokens,
+          rr.output_tokens,
+          rr.cached_input_tokens,
+          rr.reasoning_tokens,
+          rr.ttft_ms,
+          rr.duration_ms,
+          rr.status,
+          rr.started_at,
+          rr.finished_at,
+          s.cwd,
+          s.entrypoint
+        FROM request_records rr
+        LEFT JOIN sessions s
+          ON rr.provider = s.provider
+         AND rr.session_id = s.session_id
+        {}
+        ORDER BY rr.started_at DESC
+        LIMIT ?{} OFFSET ?{}
+        ",
+        where_sql,
+        param_index,
+        param_index + 1
+    );
+
+    let mut param_values_with_limit = param_values;
+    param_values_with_limit.push(Box::new(limit));
+    param_values_with_limit.push(Box::new(offset));
+
+    let mut statement = connection
+        .prepare(&data_sql)
+        .map_err(|error| error.to_string())?;
+
+    let rows = statement
+        .query_map(
+            rusqlite::params_from_iter(param_values_with_limit.iter().map(|v| v.as_ref())),
+            map_request_record_row,
+        )
+        .map_err(|error| error.to_string())?;
+
+    let records = rows
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| error.to_string())?;
+
+    Ok(PaginatedRequestRecords {
+        records,
+        total,
+        limit,
+        offset,
+    })
+}
+
+pub fn get_request_record_detail(
+    connection: &Connection,
+    id: &str,
+) -> Result<RequestRecordDetail, String> {
+    connection
+        .query_row(
+            "
+            SELECT
+              rr.id,
+              rr.provider,
+              rr.source_mode,
+              rr.session_id,
+              rr.request_id,
+              rr.model,
+              rr.is_stream,
+              rr.input_tokens,
+              rr.output_tokens,
+              rr.cached_input_tokens,
+              rr.reasoning_tokens,
+              rr.ttft_ms,
+              rr.duration_ms,
+              rr.status,
+              rr.started_at,
+              rr.finished_at,
+              s.cwd,
+              s.entrypoint,
+              rr.request_summary_json,
+              rr.response_summary_json,
+              rr.error_text
+            FROM request_records rr
+            LEFT JOIN sessions s
+              ON rr.provider = s.provider
+             AND rr.session_id = s.session_id
+            WHERE rr.id = ?1
+            ",
+            [id],
+            map_request_record_detail_row,
+        )
+        .map_err(|error| error.to_string())
+}
+
+fn map_request_record_detail_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<RequestRecordDetail> {
+    Ok(RequestRecordDetail {
+        id: row.get(0)?,
+        provider: row.get(1)?,
+        source_mode: row.get(2)?,
+        session_id: row.get(3)?,
+        request_id: row.get(4)?,
+        model: row.get(5)?,
+        is_stream: row.get::<_, i64>(6)? != 0,
+        input_tokens: row.get(7)?,
+        output_tokens: row.get(8)?,
+        cached_input_tokens: row.get(9)?,
+        reasoning_tokens: row.get(10)?,
+        ttft_ms: row.get(11)?,
+        duration_ms: row.get(12)?,
+        status: row.get(13)?,
+        started_at: row.get(14)?,
+        finished_at: row.get(15)?,
+        cwd: row.get(16)?,
+        entrypoint: row.get(17)?,
+        request_summary_json: row.get(18)?,
+        response_summary_json: row.get(19)?,
+        error_text: row.get(20)?,
+    })
 }

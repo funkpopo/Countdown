@@ -3,8 +3,8 @@ use tauri::{AppHandle, Manager};
 use crate::db;
 use crate::models::{
     BootstrapInfo, ClaudeCodeSyncSummary, ClaudeOverview, CodexOverview, CodexSyncSummary,
-    CombinedTodayUsage, DatabaseHealth, DatabaseSummary, ProviderProfileRecord,
-    ProviderProfileUpsertInput,
+    CombinedTodayUsage, DatabaseHealth, DatabaseSummary, PaginatedRequestRecords,
+    ProviderProfileRecord, ProviderProfileUpsertInput, RequestFilterInput, RequestRecordDetail,
 };
 
 #[tauri::command]
@@ -104,4 +104,19 @@ pub fn get_claude_code_overview(app: AppHandle) -> Result<ClaudeOverview, String
 pub fn get_combined_today_usage(app: AppHandle) -> Result<CombinedTodayUsage, String> {
     db::initialize(&app)?;
     db::combined_today_usage(&app)
+}
+
+#[tauri::command]
+pub fn list_filtered_requests(
+    app: AppHandle,
+    filter: RequestFilterInput,
+) -> Result<PaginatedRequestRecords, String> {
+    db::initialize(&app)?;
+    db::list_filtered_requests(&app, filter)
+}
+
+#[tauri::command]
+pub fn get_request_detail(app: AppHandle, id: String) -> Result<RequestRecordDetail, String> {
+    db::initialize(&app)?;
+    db::get_request_detail(&app, id)
 }

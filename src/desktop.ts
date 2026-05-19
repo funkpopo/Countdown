@@ -100,6 +100,45 @@ export type RequestRecordListItem = {
   entrypoint: string | null;
 };
 
+export type RequestRecordDetail = {
+  id: string;
+  provider: string;
+  sourceMode: string;
+  sessionId: string | null;
+  requestId: string | null;
+  model: string | null;
+  isStream: boolean;
+  inputTokens: number;
+  outputTokens: number;
+  cachedInputTokens: number;
+  reasoningTokens: number;
+  ttftMs: number | null;
+  durationMs: number | null;
+  status: string;
+  startedAt: string;
+  finishedAt: string | null;
+  cwd: string | null;
+  entrypoint: string | null;
+  requestSummaryJson: string | null;
+  responseSummaryJson: string | null;
+  errorText: string | null;
+};
+
+export type RequestFilterInput = {
+  provider?: string;
+  model?: string;
+  isStream?: boolean;
+  limit?: number;
+  offset?: number;
+};
+
+export type PaginatedRequestRecords = {
+  records: RequestRecordListItem[];
+  total: number;
+  limit: number;
+  offset: number;
+};
+
 export type CodexOverview = {
   dataDir: string;
   dataDirExists: boolean;
@@ -203,4 +242,14 @@ export async function getClaudeCodeOverview(): Promise<ClaudeOverview> {
 
 export async function getCombinedTodayUsage(): Promise<CombinedTodayUsage> {
   return invoke<CombinedTodayUsage>("get_combined_today_usage");
+}
+
+export async function listFilteredRequests(
+  filter: RequestFilterInput,
+): Promise<PaginatedRequestRecords> {
+  return invoke<PaginatedRequestRecords>("list_filtered_requests", { filter });
+}
+
+export async function getRequestDetail(id: string): Promise<RequestRecordDetail> {
+  return invoke<RequestRecordDetail>("get_request_detail", { id });
 }

@@ -32,7 +32,8 @@ html,
 body,
 #root {
   margin: 0;
-  min-height: 100%;
+  height: 100%;
+  overflow: auto;
 }
 
 body {
@@ -319,4 +320,24 @@ button:not(:disabled):active {
   .stats-grid {
     grid-template-columns: 1fr;
   }
+}
+
+.app-shell {
+  min-height: 100vh;
+}
+
+.top-nav {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 20px 28px;
+  border-bottom: 1px solid var(--panel-border);
+  background: var(--panel-bg);
+  backdrop-filter: blur(12px);
+}
+
+.top-nav h2 {
+  margin: 0;
+  font-size: 1.25rem;
+  color: #f8fafc;
 }

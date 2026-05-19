@@ -11,6 +11,7 @@ use app::commands::{get_claude_code_overview, sync_claude_code_sessions};
 use app::commands::{get_codex_overview, sync_codex_sessions};
 use app::commands::{get_combined_today_usage, get_database_summary};
 use app::commands::{list_provider_profiles, save_provider_profile};
+use app::commands::{get_request_detail, list_filtered_requests};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -38,7 +39,9 @@ pub fn run() {
             get_codex_overview,
             sync_claude_code_sessions,
             get_claude_code_overview,
-            get_combined_today_usage
+            get_combined_today_usage,
+            list_filtered_requests,
+            get_request_detail
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -18,6 +18,7 @@ import {
   type DailyUsageRecord,
   type RequestRecordListItem,
 } from "./desktop";
+import Requests from "./Requests";
 import "./App.css";
 
 function formatNumber(value: number | null | undefined) {
@@ -96,6 +97,7 @@ function App() {
   const [lastClaudeSync, setLastClaudeSync] = useState<ClaudeCodeSyncSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+  const [currentPage, setCurrentPage] = useState<"overview" | "requests">("overview");
 
   const refresh = () => {
     startTransition(async () => {
@@ -178,6 +180,24 @@ function App() {
   const codexTodayUsage: DailyUsageRecord | null = codexOverview?.todayUsage ?? lastCodexSync?.todayUsage ?? null;
   const claudeTodayUsage: DailyUsageRecord | null = claudeOverview?.todayUsage ?? lastClaudeSync?.todayUsage ?? null;
 
+  if (currentPage === "requests") {
+    return (
+      <div className="app-shell">
+        <nav className="top-nav">
+          <button
+            type="button"
+            className="secondary"
+            onClick={() => setCurrentPage("overview")}
+          >
+            ← Back to Overview
+          </button>
+          <h2>Request Records</h2>
+        </nav>
+        <Requests />
+      </div>
+    );
+  }
+
   return (
     <main className="shell">
       <section className="hero">
@@ -200,6 +220,13 @@ function App() {
           </button>
           <button type="button" onClick={handleSyncClaude} disabled={isPending}>
             Sync Claude Code Sessions
+          </button>
+          <button
+            type="button"
+            className="secondary"
+            onClick={() => setCurrentPage("requests")}
+          >
+            View All Requests
           </button>
           <button
             type="button"
