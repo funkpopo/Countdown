@@ -8,11 +8,8 @@ use tauri::{
     AppHandle, Manager, PhysicalPosition, PhysicalSize, Runtime, WebviewUrl, WebviewWindowBuilder,
 };
 
-use crate::db;
-
 const TRAY_ID: &str = "main-tray";
 const QUICK_VIEW_LABEL: &str = "quick-view";
-const SYNC_NOW_LABEL: &str = "sync-now";
 const OPEN_MAIN_LABEL: &str = "open-main";
 const QUIT_LABEL: &str = "quit";
 
@@ -82,14 +79,6 @@ impl TrayRuntime {
         tray.set_menu(Some(menu)).map_err(|e| e.to_string())?;
 
         tray.on_menu_event(move |app, event| match event.id.as_ref() {
-            SYNC_NOW_LABEL => {
-                let app_clone = app.clone();
-                std::thread::spawn(move || {
-                    let _ = db::initialize(&app_clone);
-                    let _ = db::sync_codex_sessions(&app_clone);
-                    let _ = db::sync_claude_code_sessions(&app_clone);
-                });
-            }
             OPEN_MAIN_LABEL => {
                 let _ =
                     dismiss_hover_preview(&app, &menu_quick_view_visible, &menu_hover_request_id);
@@ -161,9 +150,6 @@ fn dismiss_hover_preview(
 }
 
 fn build_tray_menu<R: Runtime>(app: &AppHandle<R>) -> Result<Menu<R>, String> {
-    let sync_now = MenuItemBuilder::with_id(SYNC_NOW_LABEL, "Sync Now")
-        .build(app)
-        .map_err(|e| e.to_string())?;
     let open_main = MenuItemBuilder::with_id(OPEN_MAIN_LABEL, "Open Main Window")
         .build(app)
         .map_err(|e| e.to_string())?;
@@ -171,7 +157,7 @@ fn build_tray_menu<R: Runtime>(app: &AppHandle<R>) -> Result<Menu<R>, String> {
     let quit = PredefinedMenuItem::quit(app, Some("Quit")).map_err(|e| e.to_string())?;
 
     MenuBuilder::new(app)
-        .items(&[&sync_now, &open_main, &separator, &quit])
+        .items(&[&open_main, &separator, &quit])
         .build()
         .map_err(|e| e.to_string())
 }

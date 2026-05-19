@@ -1,14 +1,15 @@
 mod analytics;
 mod app;
+mod background_sync;
 mod collectors;
 mod compat_api;
 mod db;
 mod models;
 mod tray;
 
+use app::commands::run_managed_launch;
 use app::commands::{database_healthcheck, get_bootstrap_info, initialize_local_database};
-use app::commands::{get_claude_code_overview, sync_claude_code_sessions};
-use app::commands::{get_codex_overview, sync_codex_sessions};
+use app::commands::{get_claude_code_overview, get_codex_overview};
 use app::commands::{get_combined_today_usage, get_database_summary};
 use app::commands::{get_compat_api_status, start_compat_api_server, stop_compat_api_server};
 use app::commands::{get_request_detail, list_filtered_requests};
@@ -24,6 +25,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .setup(move |app| {
             tray_runtime_for_setup.setup(app.handle())?;
+            background_sync::start(app.handle().clone());
             Ok(())
         })
         .on_window_event(move |window, event| {
@@ -37,9 +39,8 @@ pub fn run() {
             list_provider_profiles,
             save_provider_profile,
             save_provider_profiles_batch,
-            sync_codex_sessions,
             get_codex_overview,
-            sync_claude_code_sessions,
+            run_managed_launch,
             get_claude_code_overview,
             get_combined_today_usage,
             list_filtered_requests,

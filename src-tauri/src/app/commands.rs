@@ -3,9 +3,10 @@ use tauri::{AppHandle, Manager};
 use crate::compat_api::CompatApiServer;
 use crate::db;
 use crate::models::{
-    BootstrapInfo, ClaudeCodeSyncSummary, ClaudeOverview, CodexOverview, CodexSyncSummary,
-    CombinedTodayUsage, CompatApiStatus, DatabaseHealth, DatabaseSummary, PaginatedRequestRecords,
-    ProviderProfileRecord, ProviderProfileUpsertInput, RequestFilterInput, RequestRecordDetail,
+    BootstrapInfo, ClaudeOverview, CodexOverview, CombinedTodayUsage, CompatApiStatus,
+    DatabaseHealth, DatabaseSummary, ManagedLaunchInput, ManagedLaunchResult,
+    PaginatedRequestRecords, ProviderProfileRecord, ProviderProfileUpsertInput, RequestFilterInput,
+    RequestRecordDetail,
 };
 
 #[tauri::command]
@@ -76,35 +77,23 @@ pub fn save_provider_profiles_batch(
 }
 
 #[tauri::command]
-pub async fn sync_codex_sessions(app: AppHandle) -> Result<CodexSyncSummary, String> {
-    let app_clone = app.clone();
-    let result = tauri::async_runtime::spawn_blocking(move || {
-        db::initialize(&app_clone)?;
-        db::sync_codex_sessions(&app_clone)
-    })
-    .await
-    .map_err(|error| error.to_string())?;
-
-    result
-}
-
-#[tauri::command]
 pub fn get_codex_overview(app: AppHandle) -> Result<CodexOverview, String> {
     db::initialize(&app)?;
     db::codex_overview(&app)
 }
 
 #[tauri::command]
-pub async fn sync_claude_code_sessions(app: AppHandle) -> Result<ClaudeCodeSyncSummary, String> {
+pub async fn run_managed_launch(
+    app: AppHandle,
+    input: ManagedLaunchInput,
+) -> Result<ManagedLaunchResult, String> {
     let app_clone = app.clone();
-    let result = tauri::async_runtime::spawn_blocking(move || {
+    tauri::async_runtime::spawn_blocking(move || {
         db::initialize(&app_clone)?;
-        db::sync_claude_code_sessions(&app_clone)
+        db::run_managed_launch(&app_clone, input)
     })
     .await
-    .map_err(|error| error.to_string())?;
-
-    result
+    .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]

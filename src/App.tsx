@@ -1,29 +1,31 @@
-import { useEffect, useState, useTransition } from "react";
+import { lazy, memo, Suspense, useEffect, useState, useTransition } from "react";
+import { listen } from "@tauri-apps/api/event";
 import {
   getClaudeCodeOverview,
   getCodexOverview,
   getDatabaseSummary,
   initializeLocalDatabase,
-  syncClaudeCodeSessions,
-  syncCodexSessions,
-  type ClaudeCodeSyncSummary,
   type ClaudeOverview,
   type CodexOverview,
-  type CodexSyncSummary,
   type DailyUsageRecord,
   type DatabaseSummary,
   type RequestRecordListItem,
 } from "./desktop";
-import Requests from "./Requests";
-import Settings from "./Settings";
 import "./App.css";
+
+const Requests = lazy(() => import("./Requests"));
+const Settings = lazy(() => import("./Settings"));
+const numberFormatter = new Intl.NumberFormat("en-US");
+const dateTimeFormatter = new Intl.DateTimeFormat("zh-CN", {
+  hour12: false,
+});
 
 function formatNumber(value: number | null | undefined) {
   if (value == null) {
     return "0";
   }
 
-  return new Intl.NumberFormat("en-US").format(value);
+  return numberFormatter.format(value);
 }
 
 function formatMs(value: number | null | undefined) {
@@ -48,9 +50,7 @@ function formatDateTime(value: string | null | undefined) {
     return value;
   }
 
-  return date.toLocaleString("zh-CN", {
-    hour12: false,
-  });
+  return dateTimeFormatter.format(date);
 }
 
 function renderUsageStat(label: string, value: string) {
@@ -84,121 +84,31 @@ function renderRequestRow(request: RequestRecordListItem) {
   );
 }
 
-function App() {
-  const [databaseSummary, setDatabaseSummary] = useState<DatabaseSummary | null>(null);
-  const [codexOverview, setCodexOverview] = useState<CodexOverview | null>(null);
-  const [claudeOverview, setClaudeOverview] = useState<ClaudeOverview | null>(null);
-  const [lastCodexSync, setLastCodexSync] = useState<CodexSyncSummary | null>(null);
-  const [lastClaudeSync, setLastClaudeSync] = useState<ClaudeCodeSyncSummary | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [isPending, startTransition] = useTransition();
-  const [currentPage, setCurrentPage] = useState<"overview" | "requests" | "settings">("overview");
+type OverviewPageProps = {
+  databaseSummary: DatabaseSummary | null;
+  codexOverview: CodexOverview | null;
+  claudeOverview: ClaudeOverview | null;
+  error: string | null;
+  isPending: boolean;
+  onShowRequests: () => void;
+  onShowSettings: () => void;
+  onRefresh: () => void;
+  onInitializeDatabase: () => void;
+};
 
-  const refresh = () => {
-    startTransition(async () => {
-      try {
-        setError(null);
-        const [summary, codex, claude] = await Promise.all([
-          getDatabaseSummary(),
-          getCodexOverview(),
-          getClaudeCodeOverview(),
-        ]);
-        setDatabaseSummary(summary);
-        setCodexOverview(codex);
-        setClaudeOverview(claude);
-      } catch (refreshError) {
-        setError(
-          refreshError instanceof Error ? refreshError.message : "Failed to load app state.",
-        );
-      }
-    });
-  };
-
-  useEffect(() => {
-    refresh();
-  }, []);
-
-  const handleInitializeDatabase = async () => {
-    startTransition(async () => {
-      try {
-        setError(null);
-        await initializeLocalDatabase();
-        refresh();
-      } catch (initError) {
-        setError(
-          initError instanceof Error ? initError.message : "Failed to initialize database.",
-        );
-      }
-    });
-  };
-
-  const handleSyncCodex = async () => {
-    startTransition(async () => {
-      try {
-        setError(null);
-        const syncSummary = await syncCodexSessions();
-        setLastCodexSync(syncSummary);
-        const [summary, overview] = await Promise.all([getDatabaseSummary(), getCodexOverview()]);
-        setDatabaseSummary(summary);
-        setCodexOverview(overview);
-      } catch (syncError) {
-        setError(syncError instanceof Error ? syncError.message : "Failed to sync Codex data.");
-      }
-    });
-  };
-
-  const handleSyncClaude = async () => {
-    startTransition(async () => {
-      try {
-        setError(null);
-        const syncSummary = await syncClaudeCodeSessions();
-        setLastClaudeSync(syncSummary);
-        const [summary, overview] = await Promise.all([
-          getDatabaseSummary(),
-          getClaudeCodeOverview(),
-        ]);
-        setDatabaseSummary(summary);
-        setClaudeOverview(overview);
-      } catch (syncError) {
-        setError(
-          syncError instanceof Error ? syncError.message : "Failed to sync Claude Code data.",
-        );
-      }
-    });
-  };
-
-  const codexTodayUsage: DailyUsageRecord | null =
-    codexOverview?.todayUsage ?? lastCodexSync?.todayUsage ?? null;
-  const claudeTodayUsage: DailyUsageRecord | null =
-    claudeOverview?.todayUsage ?? lastClaudeSync?.todayUsage ?? null;
-
-  if (currentPage === "requests") {
-    return (
-      <div className="app-shell">
-        <nav className="top-nav">
-          <button type="button" className="secondary" onClick={() => setCurrentPage("overview")}>
-            Back
-          </button>
-          <h2>Request Records</h2>
-        </nav>
-        <Requests />
-      </div>
-    );
-  }
-
-  if (currentPage === "settings") {
-    return (
-      <div className="app-shell">
-        <nav className="top-nav">
-          <button type="button" className="secondary" onClick={() => setCurrentPage("overview")}>
-            Back
-          </button>
-          <h2>Settings</h2>
-        </nav>
-        <Settings />
-      </div>
-    );
-  }
+const OverviewPage = memo(function OverviewPage({
+  databaseSummary,
+  codexOverview,
+  claudeOverview,
+  error,
+  isPending,
+  onShowRequests,
+  onShowSettings,
+  onRefresh,
+  onInitializeDatabase,
+}: OverviewPageProps) {
+  const codexTodayUsage: DailyUsageRecord | null = codexOverview?.todayUsage ?? null;
+  const claudeTodayUsage: DailyUsageRecord | null = claudeOverview?.todayUsage ?? null;
 
   return (
     <main className="shell">
@@ -213,25 +123,19 @@ function App() {
         </div>
 
         <div className="toolbar">
-          <button type="button" onClick={handleSyncCodex} disabled={isPending}>
-            Sync Codex
-          </button>
-          <button type="button" onClick={handleSyncClaude} disabled={isPending}>
-            Sync Claude
-          </button>
-          <button type="button" className="secondary" onClick={() => setCurrentPage("requests")}>
+          <button type="button" className="secondary" onClick={onShowRequests}>
             Requests
           </button>
-          <button type="button" className="secondary" onClick={() => setCurrentPage("settings")}>
+          <button type="button" className="secondary" onClick={onShowSettings}>
             Settings
           </button>
-          <button type="button" className="secondary" onClick={refresh} disabled={isPending}>
+          <button type="button" className="secondary" onClick={onRefresh} disabled={isPending}>
             Refresh
           </button>
           <button
             type="button"
             className="secondary"
-            onClick={handleInitializeDatabase}
+            onClick={onInitializeDatabase}
             disabled={isPending}
           >
             Init DB
@@ -240,20 +144,6 @@ function App() {
       </section>
 
       {error ? <section className="notice error">{error}</section> : null}
-
-      {lastCodexSync ? (
-        <section className="notice">
-          Codex imported {formatNumber(lastCodexSync.importedRequests)} requests from{" "}
-          {formatNumber(lastCodexSync.scannedFiles)} files.
-        </section>
-      ) : null}
-
-      {lastClaudeSync ? (
-        <section className="notice">
-          Claude imported {formatNumber(lastClaudeSync.importedRequests)} requests from{" "}
-          {formatNumber(lastClaudeSync.scannedFiles)} files.
-        </section>
-      ) : null}
 
       <section className="grid">
         <article className="panel">
@@ -288,65 +178,19 @@ function App() {
           </div>
         </article>
 
-        <article className="panel wide">
-          <div className="panel-header">
-            <h2>Recent Codex Requests</h2>
-            <span className="panel-meta mono">{codexOverview?.dataDir ?? "resolving"}</span>
-          </div>
-          {codexOverview?.recentRequests.length ? (
-            <div className="table-shell">
-              <table className="request-table">
-                <thead>
-                  <tr>
-                    <th>Request</th>
-                    <th>Mode</th>
-                    <th>Input</th>
-                    <th>Output</th>
-                    <th>Cached</th>
-                    <th>Reasoning</th>
-                    <th>TTFT</th>
-                    <th>Duration</th>
-                    <th>Status</th>
-                    <th>Started</th>
-                  </tr>
-                </thead>
-                <tbody>{codexOverview.recentRequests.map(renderRequestRow)}</tbody>
-              </table>
-            </div>
-          ) : (
-            <p className="empty">No Codex requests yet.</p>
-          )}
-        </article>
+        <RecentRequestsPanel
+          title="Recent Codex Requests"
+          dataDir={codexOverview?.dataDir}
+          requests={codexOverview?.recentRequests}
+          emptyText="No Codex requests yet."
+        />
 
-        <article className="panel wide">
-          <div className="panel-header">
-            <h2>Recent Claude Requests</h2>
-            <span className="panel-meta mono">{claudeOverview?.dataDir ?? "resolving"}</span>
-          </div>
-          {claudeOverview?.recentRequests.length ? (
-            <div className="table-shell">
-              <table className="request-table">
-                <thead>
-                  <tr>
-                    <th>Request</th>
-                    <th>Mode</th>
-                    <th>Input</th>
-                    <th>Output</th>
-                    <th>Cached</th>
-                    <th>Reasoning</th>
-                    <th>TTFT</th>
-                    <th>Duration</th>
-                    <th>Status</th>
-                    <th>Started</th>
-                  </tr>
-                </thead>
-                <tbody>{claudeOverview.recentRequests.map(renderRequestRow)}</tbody>
-              </table>
-            </div>
-          ) : (
-            <p className="empty">No Claude requests yet.</p>
-          )}
-        </article>
+        <RecentRequestsPanel
+          title="Recent Claude Requests"
+          dataDir={claudeOverview?.dataDir}
+          requests={claudeOverview?.recentRequests}
+          emptyText="No Claude requests yet."
+        />
 
         <article className="panel wide">
           <div className="panel-header">
@@ -364,6 +208,181 @@ function App() {
         </article>
       </section>
     </main>
+  );
+});
+
+const RecentRequestsPanel = memo(function RecentRequestsPanel({
+  title,
+  dataDir,
+  requests,
+  emptyText,
+}: {
+  title: string;
+  dataDir: string | undefined;
+  requests: RequestRecordListItem[] | undefined;
+  emptyText: string;
+}) {
+  return (
+    <article className="panel wide">
+      <div className="panel-header">
+        <h2>{title}</h2>
+        <span className="panel-meta mono">{dataDir ?? "resolving"}</span>
+      </div>
+      {requests?.length ? (
+        <div className="table-shell">
+          <table className="request-table">
+            <thead>
+              <tr>
+                <th>Request</th>
+                <th>Mode</th>
+                <th>Input</th>
+                <th>Output</th>
+                <th>Cached</th>
+                <th>Reasoning</th>
+                <th>TTFT</th>
+                <th>Duration</th>
+                <th>Status</th>
+                <th>Started</th>
+              </tr>
+            </thead>
+            <tbody>{requests.map(renderRequestRow)}</tbody>
+          </table>
+        </div>
+      ) : (
+        <p className="empty">{emptyText}</p>
+      )}
+    </article>
+  );
+});
+
+function App() {
+  const [databaseSummary, setDatabaseSummary] = useState<DatabaseSummary | null>(null);
+  const [codexOverview, setCodexOverview] = useState<CodexOverview | null>(null);
+  const [claudeOverview, setClaudeOverview] = useState<ClaudeOverview | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [isPending, startTransition] = useTransition();
+  const [currentPage, setCurrentPage] = useState<"overview" | "requests" | "settings">("overview");
+  const [visitedRequests, setVisitedRequests] = useState(false);
+  const [visitedSettings, setVisitedSettings] = useState(false);
+
+  const refresh = () => {
+    startTransition(async () => {
+      try {
+        setError(null);
+        const [summary, codex, claude] = await Promise.all([
+          getDatabaseSummary(),
+          getCodexOverview(),
+          getClaudeCodeOverview(),
+        ]);
+        setDatabaseSummary(summary);
+        setCodexOverview(codex);
+        setClaudeOverview(claude);
+      } catch (refreshError) {
+        setError(
+          refreshError instanceof Error ? refreshError.message : "Failed to load app state.",
+        );
+      }
+    });
+  };
+
+  useEffect(() => {
+    refresh();
+  }, []);
+
+  useEffect(() => {
+    let disposed = false;
+    let unlistenCompleted: (() => void) | null = null;
+    let unlistenFailed: (() => void) | null = null;
+
+    void Promise.all([
+      listen("usage-sync-completed", () => {
+        refresh();
+      }),
+      listen<{ error?: string }>("usage-sync-failed", (event) => {
+        setError(event.payload?.error ?? "Background sync failed.");
+      }),
+    ]).then(([completed, failed]) => {
+      if (disposed) {
+        completed();
+        failed();
+        return;
+      }
+
+      unlistenCompleted = completed;
+      unlistenFailed = failed;
+    });
+
+    return () => {
+      disposed = true;
+      unlistenCompleted?.();
+      unlistenFailed?.();
+    };
+  }, []);
+
+  const handleInitializeDatabase = async () => {
+    startTransition(async () => {
+      try {
+        setError(null);
+        await initializeLocalDatabase();
+        refresh();
+      } catch (initError) {
+        setError(
+          initError instanceof Error ? initError.message : "Failed to initialize database.",
+        );
+      }
+    });
+  };
+
+  return (
+    <>
+      <div hidden={currentPage !== "overview"}>
+        <OverviewPage
+          databaseSummary={databaseSummary}
+          codexOverview={codexOverview}
+          claudeOverview={claudeOverview}
+          error={error}
+          isPending={isPending}
+          onShowRequests={() => {
+            setVisitedRequests(true);
+            setCurrentPage("requests");
+          }}
+          onShowSettings={() => {
+            setVisitedSettings(true);
+            setCurrentPage("settings");
+          }}
+          onRefresh={refresh}
+          onInitializeDatabase={handleInitializeDatabase}
+        />
+      </div>
+
+      {visitedRequests ? (
+        <div hidden={currentPage !== "requests"} className="app-shell">
+          <nav className="top-nav">
+            <button type="button" className="secondary" onClick={() => setCurrentPage("overview")}>
+              Back
+            </button>
+            <h2>Request Records</h2>
+          </nav>
+          <Suspense fallback={<section className="notice">Loading requests...</section>}>
+            <Requests />
+          </Suspense>
+        </div>
+      ) : null}
+
+      {visitedSettings ? (
+        <div hidden={currentPage !== "settings"} className="app-shell">
+          <nav className="top-nav">
+            <button type="button" className="secondary" onClick={() => setCurrentPage("overview")}>
+              Back
+            </button>
+            <h2>Settings</h2>
+          </nav>
+          <Suspense fallback={<section className="notice">Loading settings...</section>}>
+            <Settings />
+          </Suspense>
+        </div>
+      ) : null}
+    </>
   );
 }
 

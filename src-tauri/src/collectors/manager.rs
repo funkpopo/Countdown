@@ -4,13 +4,36 @@ use crate::collectors::claude_code::{
     default_claude_data_dir, ClaudeCodeCollector, CLAUDE_PROVIDER,
 };
 use crate::collectors::codex::{default_codex_sessions_dir, CodexCollector, CODEX_PROVIDER};
+use crate::collectors::managed_launch::run_managed_launch;
 use crate::db::repository;
-use crate::models::{ClaudeCodeSyncSummary, ClaudeOverview, CodexOverview, CodexSyncSummary};
+use crate::models::{
+    ClaudeCodeSyncSummary, ClaudeOverview, CodexOverview, CodexSyncSummary, ManagedLaunchInput,
+    ManagedLaunchResult,
+};
 
 #[derive(Debug, Clone, Default)]
 pub struct CollectorManager;
 
 impl CollectorManager {
+    pub fn run_managed_launch(
+        connection: &mut Connection,
+        input: ManagedLaunchInput,
+    ) -> Result<ManagedLaunchResult, String> {
+        let capture = run_managed_launch(input)?;
+
+        let provider = capture.request.provider.clone();
+        let transaction = connection
+            .unchecked_transaction()
+            .map_err(|error| error.to_string())?;
+
+        repository::upsert_session_record(&transaction, &capture.session)?;
+        repository::upsert_request_record(&transaction, &capture.request)?;
+        repository::rebuild_daily_usage_for_provider(&transaction, &provider)?;
+        transaction.commit().map_err(|error| error.to_string())?;
+
+        Ok(capture.result)
+    }
+
     pub fn sync_codex_sessions(connection: &mut Connection) -> Result<CodexSyncSummary, String> {
         let import = CodexCollector::import_default_sessions()?;
 

@@ -190,6 +190,37 @@ pub struct ClaudeCodeSyncSummary {
     pub today_usage: Option<DailyUsageRecord>,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ManagedLaunchInput {
+    pub provider: String,
+    pub executable: String,
+    pub args: Vec<String>,
+    pub stdin: Option<String>,
+    pub cwd: Option<String>,
+    pub model: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ManagedLaunchResult {
+    pub provider: String,
+    pub source_mode: String,
+    pub session_id: String,
+    pub request_id: String,
+    pub status: String,
+    pub exit_code: Option<i32>,
+    pub model: Option<String>,
+    pub input_tokens: i64,
+    pub output_tokens: i64,
+    pub cached_input_tokens: i64,
+    pub reasoning_tokens: i64,
+    pub ttft_ms: Option<i64>,
+    pub duration_ms: i64,
+    pub stdout: String,
+    pub stderr: String,
+}
+
 #[derive(Debug, Clone)]
 pub struct SessionUpsertRecord {
     pub id: String,

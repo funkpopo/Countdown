@@ -151,18 +151,6 @@ export type CodexOverview = {
   recentRequests: RequestRecordListItem[];
 };
 
-export type CodexSyncSummary = {
-  dataDir: string;
-  dataDirExists: boolean;
-  scannedFiles: number;
-  importedSessions: number;
-  importedRequests: number;
-  skippedIncompleteTurns: number;
-  sessionCount: number;
-  requestCount: number;
-  todayUsage: DailyUsageRecord | null;
-};
-
 export type ClaudeOverview = {
   dataDir: string;
   dataDirExists: boolean;
@@ -170,18 +158,6 @@ export type ClaudeOverview = {
   requestCount: number;
   todayUsage: DailyUsageRecord | null;
   recentRequests: RequestRecordListItem[];
-};
-
-export type ClaudeCodeSyncSummary = {
-  dataDir: string;
-  dataDirExists: boolean;
-  scannedFiles: number;
-  importedSessions: number;
-  importedRequests: number;
-  skippedIncompleteSessions: number;
-  sessionCount: number;
-  requestCount: number;
-  todayUsage: DailyUsageRecord | null;
 };
 
 export type CombinedTodayUsage = {
@@ -206,6 +182,33 @@ export type CompatApiStatus = {
   listenAddress: string;
   startedAt: string | null;
   profilesCount: number;
+};
+
+export type ManagedLaunchInput = {
+  provider: "codex" | "claude_code";
+  executable: string;
+  args: string[];
+  stdin: string | null;
+  cwd: string | null;
+  model: string | null;
+};
+
+export type ManagedLaunchResult = {
+  provider: string;
+  sourceMode: string;
+  sessionId: string;
+  requestId: string;
+  status: string;
+  exitCode: number | null;
+  model: string | null;
+  inputTokens: number;
+  outputTokens: number;
+  cachedInputTokens: number;
+  reasoningTokens: number;
+  ttftMs: number | null;
+  durationMs: number;
+  stdout: string;
+  stderr: string;
 };
 
 export async function getBootstrapInfo(): Promise<BootstrapInfo> {
@@ -240,16 +243,12 @@ export async function saveProviderProfilesBatch(
   return invoke<ProviderProfileRecord[]>("save_provider_profiles_batch", { inputs });
 }
 
-export async function syncCodexSessions(): Promise<CodexSyncSummary> {
-  return invoke<CodexSyncSummary>("sync_codex_sessions");
-}
-
 export async function getCodexOverview(): Promise<CodexOverview> {
   return invoke<CodexOverview>("get_codex_overview");
 }
 
-export async function syncClaudeCodeSessions(): Promise<ClaudeCodeSyncSummary> {
-  return invoke<ClaudeCodeSyncSummary>("sync_claude_code_sessions");
+export async function runManagedLaunch(input: ManagedLaunchInput): Promise<ManagedLaunchResult> {
+  return invoke<ManagedLaunchResult>("run_managed_launch", { input });
 }
 
 export async function getClaudeCodeOverview(): Promise<ClaudeOverview> {

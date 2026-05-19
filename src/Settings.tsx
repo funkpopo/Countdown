@@ -6,7 +6,10 @@ import {
   startCompatApiServer,
   stopCompatApiServer,
   getCompatApiStatus,
+  runManagedLaunch,
   type CompatApiStatus,
+  type ManagedLaunchInput,
+  type ManagedLaunchResult,
   type ProviderProfileRecord,
   type ProviderProfileUpsertInput,
 } from "./desktop";
@@ -31,6 +34,18 @@ function splitList(value: string): string[] {
     .split(/[,\n]/)
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+function splitShellArgs(value: string): string[] {
+  const args: string[] = [];
+  const pattern = /"([^"]*)"|'([^']*)'|[^\s]+/g;
+  let match: RegExpExecArray | null;
+
+  while ((match = pattern.exec(value)) !== null) {
+    args.push(match[1] ?? match[2] ?? match[0]);
+  }
+
+  return args;
 }
 
 function normalizeStringList(value: unknown): string[] {
@@ -225,6 +240,16 @@ function Settings() {
   const [success, setSuccess] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const [editingProfile, setEditingProfile] = useState<EditableProviderProfile | null>(null);
+  const [launchForm, setLaunchForm] = useState<ManagedLaunchInput>({
+    provider: "codex",
+    executable: "codex",
+    args: [],
+    stdin: null,
+    cwd: null,
+    model: null,
+  });
+  const [launchArgsText, setLaunchArgsText] = useState("");
+  const [launchResult, setLaunchResult] = useState<ManagedLaunchResult | null>(null);
 
   const refresh = () => {
     startTransition(async () => {
@@ -323,10 +348,132 @@ function Settings() {
     });
   };
 
+  const handleManagedLaunch = async () => {
+    startTransition(async () => {
+      try {
+        setError(null);
+        setSuccess(null);
+        setLaunchResult(null);
+        const result = await runManagedLaunch({
+          ...launchForm,
+          executable: launchForm.executable.trim(),
+          args: splitShellArgs(launchArgsText),
+          stdin: normalizeNullableText(launchForm.stdin),
+          cwd: normalizeNullableText(launchForm.cwd),
+          model: normalizeNullableText(launchForm.model),
+        });
+        setLaunchResult(result);
+        setSuccess(`Captured ${result.provider} managed launch`);
+      } catch (launchError) {
+        setError(
+          launchError instanceof Error ? launchError.message : "Failed to run managed launch.",
+        );
+      }
+    });
+  };
+
   return (
     <div className="settings-shell">
       {error ? <section className="notice error">{error}</section> : null}
       {success ? <section className="notice success">{success}</section> : null}
+
+      <section className="settings-block">
+        <div className="section-header">
+          <h2>Managed Launch</h2>
+        </div>
+
+        <div className="profile-grid">
+          <div className="settings-group">
+            <label htmlFor="launchProvider">Provider</label>
+            <select
+              id="launchProvider"
+              value={launchForm.provider}
+              onChange={(event) => {
+                const provider = event.target.value as "codex" | "claude_code";
+                setLaunchForm({
+                  ...launchForm,
+                  provider,
+                  executable: provider === "codex" ? "codex" : "claude",
+                });
+              }}
+            >
+              <option value="codex">Codex</option>
+              <option value="claude_code">Claude Code</option>
+            </select>
+          </div>
+
+          <div className="settings-group">
+            <label htmlFor="launchExecutable">Executable</label>
+            <input
+              id="launchExecutable"
+              type="text"
+              value={launchForm.executable}
+              onChange={(event) => setLaunchForm({ ...launchForm, executable: event.target.value })}
+              placeholder="codex"
+            />
+          </div>
+
+          <div className="settings-group full-width">
+            <label htmlFor="launchArgs">Args</label>
+            <input
+              id="launchArgs"
+              type="text"
+              value={launchArgsText}
+              onChange={(event) => setLaunchArgsText(event.target.value)}
+              placeholder='--output-format stream-json -p "Summarize this project"'
+            />
+          </div>
+
+          <div className="settings-group">
+            <label htmlFor="launchCwd">Working Dir</label>
+            <input
+              id="launchCwd"
+              type="text"
+              value={launchForm.cwd ?? ""}
+              onChange={(event) => setLaunchForm({ ...launchForm, cwd: event.target.value })}
+              placeholder="d:\\Projects\\Countdown"
+            />
+          </div>
+
+          <div className="settings-group">
+            <label htmlFor="launchModel">Model</label>
+            <input
+              id="launchModel"
+              type="text"
+              value={launchForm.model ?? ""}
+              onChange={(event) => setLaunchForm({ ...launchForm, model: event.target.value })}
+              placeholder="optional fallback"
+            />
+          </div>
+
+          <div className="settings-group full-width">
+            <label htmlFor="launchStdin">Stdin</label>
+            <textarea
+              id="launchStdin"
+              value={launchForm.stdin ?? ""}
+              onChange={(event) => setLaunchForm({ ...launchForm, stdin: event.target.value })}
+              placeholder="Optional prompt or JSONL input for a wrapper script"
+            />
+          </div>
+        </div>
+
+        <div className="settings-actions">
+          <button type="button" onClick={handleManagedLaunch} disabled={isPending}>
+            Run & Capture
+          </button>
+        </div>
+
+        {launchResult ? (
+          <div className="status-strip">
+            <span className={`status-pill ${launchResult.status === "completed" ? "running" : "stopped"}`}>
+              {launchResult.status}
+            </span>
+            <span>{launchResult.inputTokens + launchResult.outputTokens} tokens</span>
+            <span>{launchResult.durationMs} ms</span>
+            <span className="mono">{launchResult.model ?? "model unknown"}</span>
+          </div>
+        ) : null}
+      </section>
 
       <section className="settings-block">
         <div className="settings-row">

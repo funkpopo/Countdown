@@ -10,8 +10,9 @@ use tauri::{path::BaseDirectory, AppHandle, Manager};
 use crate::collectors::manager::CollectorManager;
 use crate::models::{
     ClaudeCodeSyncSummary, ClaudeOverview, CodexOverview, CodexSyncSummary, CombinedTodayUsage,
-    DatabaseHealth, DatabaseSummary, PaginatedRequestRecords, ProviderProfileRecord,
-    ProviderProfileUpsertInput, RequestFilterInput, RequestRecordDetail,
+    DatabaseHealth, DatabaseSummary, ManagedLaunchInput, ManagedLaunchResult,
+    PaginatedRequestRecords, ProviderProfileRecord, ProviderProfileUpsertInput, RequestFilterInput,
+    RequestRecordDetail,
 };
 
 const DATABASE_FILE: &str = "countdown.db";
@@ -116,6 +117,14 @@ pub fn save_provider_profiles_batch(
 pub fn sync_codex_sessions(app: &AppHandle) -> Result<CodexSyncSummary, String> {
     let mut connection = open_connection(app)?;
     CollectorManager::sync_codex_sessions(&mut connection)
+}
+
+pub fn run_managed_launch(
+    app: &AppHandle,
+    input: ManagedLaunchInput,
+) -> Result<ManagedLaunchResult, String> {
+    let mut connection = open_connection(app)?;
+    CollectorManager::run_managed_launch(&mut connection, input)
 }
 
 pub fn codex_overview(app: &AppHandle) -> Result<CodexOverview, String> {
