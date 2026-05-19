@@ -110,9 +110,9 @@ impl ClaudeCodeCollector {
                 }
             }
 
-            state.assistant_messages.sort_by(|a, b| {
-                a.timestamp.cmp(&b.timestamp)
-            });
+            state
+                .assistant_messages
+                .sort_by(|a, b| a.timestamp.cmp(&b.timestamp));
 
             let source_file = files
                 .iter()
@@ -153,7 +153,8 @@ impl ClaudeCodeCollector {
                     is_stream: msg.has_tool_use || usage.cache_creation_input_tokens > 0,
                     input_tokens: usage.input_tokens,
                     output_tokens: usage.output_tokens,
-                    cached_input_tokens: usage.cache_read_input_tokens + usage.cache_creation_input_tokens,
+                    cached_input_tokens: usage.cache_read_input_tokens
+                        + usage.cache_creation_input_tokens,
                     reasoning_tokens: 0,
                     ttft_ms: None,
                     duration_ms: None,
@@ -321,12 +322,10 @@ fn parse_project_jsonl(path: &Path) -> Result<ParsedProjectFile, String> {
                     .map(str::to_owned)
                     .unwrap_or_else(|| file_stem.clone());
 
-                let state = sessions
-                    .entry(session_id)
-                    .or_insert_with(|| SessionState {
-                        session_id: file_stem.clone(),
-                        ..SessionState::default()
-                    });
+                let state = sessions.entry(session_id).or_insert_with(|| SessionState {
+                    session_id: file_stem.clone(),
+                    ..SessionState::default()
+                });
 
                 if let Some(duration_ms) = envelope
                     .get("durationMs")
@@ -423,11 +422,7 @@ fn content_has_tool_use(content: &Value) -> bool {
     }
 }
 
-fn build_session_record(
-    key: &str,
-    state: &SessionState,
-    source_file: &str,
-) -> SessionUpsertRecord {
+fn build_session_record(key: &str, state: &SessionState, source_file: &str) -> SessionUpsertRecord {
     let metadata_json = json!({
         "sourceFile": source_file,
         "cwd": state.cwd,
@@ -465,8 +460,12 @@ fn merge_session_state(existing: &mut SessionState, incoming: SessionState) {
     if existing.first_timestamp.is_none() {
         existing.first_timestamp = incoming.first_timestamp;
     }
-    existing.last_timestamp = incoming.last_timestamp.or_else(|| existing.last_timestamp.clone());
-    existing.assistant_messages.extend(incoming.assistant_messages);
+    existing.last_timestamp = incoming
+        .last_timestamp
+        .or_else(|| existing.last_timestamp.clone());
+    existing
+        .assistant_messages
+        .extend(incoming.assistant_messages);
     existing.tool_durations.extend(incoming.tool_durations);
 }
 
@@ -520,10 +519,7 @@ fn load_session_meta_overrides(sessions_dir: &Path) -> HashMap<String, SessionMe
             overrides.insert(
                 sid,
                 SessionMetaOverride {
-                    cwd: parsed
-                        .get("cwd")
-                        .and_then(Value::as_str)
-                        .map(str::to_owned),
+                    cwd: parsed.get("cwd").and_then(Value::as_str).map(str::to_owned),
                     entrypoint: parsed
                         .get("entrypoint")
                         .and_then(Value::as_str)
@@ -566,7 +562,10 @@ mod tests {
         fs::remove_file(&file_path).ok();
 
         assert_eq!(parsed.sessions.len(), 1);
-        let state = parsed.sessions.get("claude-session-1").expect("session must exist");
+        let state = parsed
+            .sessions
+            .get("claude-session-1")
+            .expect("session must exist");
         assert_eq!(state.assistant_messages.len(), 2);
         assert_eq!(state.cwd.as_deref(), Some("d:\\Projects\\Countdown"));
         assert_eq!(state.entrypoint.as_deref(), Some("claude_vscode"));
@@ -599,7 +598,10 @@ mod tests {
         fs::remove_file(&file_path).ok();
 
         assert_eq!(parsed.sessions.len(), 1);
-        let state = parsed.sessions.get("empty-session").expect("session must exist");
+        let state = parsed
+            .sessions
+            .get("empty-session")
+            .expect("session must exist");
         assert!(state.assistant_messages.is_empty());
     }
 

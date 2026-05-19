@@ -1,6 +1,8 @@
 use rusqlite::Connection;
 
-use crate::collectors::claude_code::{default_claude_data_dir, ClaudeCodeCollector, CLAUDE_PROVIDER};
+use crate::collectors::claude_code::{
+    default_claude_data_dir, ClaudeCodeCollector, CLAUDE_PROVIDER,
+};
 use crate::collectors::codex::{default_codex_sessions_dir, CodexCollector, CODEX_PROVIDER};
 use crate::db::repository;
 use crate::models::{ClaudeCodeSyncSummary, ClaudeOverview, CodexOverview, CodexSyncSummary};
@@ -62,7 +64,9 @@ impl CollectorManager {
         })
     }
 
-    pub fn sync_claude_code_sessions(connection: &mut Connection) -> Result<ClaudeCodeSyncSummary, String> {
+    pub fn sync_claude_code_sessions(
+        connection: &mut Connection,
+    ) -> Result<ClaudeCodeSyncSummary, String> {
         let import = ClaudeCodeCollector::import_default_sessions()?;
 
         let transaction = connection

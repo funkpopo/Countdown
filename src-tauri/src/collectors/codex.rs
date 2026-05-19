@@ -268,7 +268,10 @@ fn build_parsed_rollout(
         let is_stream = state.ttft_ms.is_some() || state.token_updates > 1;
         let model = state.model.clone();
         let status = if finished_at.is_some() {
-            state.status.clone().unwrap_or_else(|| "completed".to_string())
+            state
+                .status
+                .clone()
+                .unwrap_or_else(|| "completed".to_string())
         } else {
             "incomplete".to_string()
         };

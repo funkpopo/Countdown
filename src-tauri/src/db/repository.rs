@@ -1,7 +1,7 @@
 use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::models::{
-    AppliedMigration, DailyUsageRecord, DatabaseSummary, ProviderProfileRecord,
+    AppliedMigration, CombinedTodayUsage, DailyUsageRecord, DatabaseSummary, ProviderProfileRecord,
     ProviderProfileUpsertInput, RequestRecordListItem, RequestRecordUpsertRecord,
     SessionUpsertRecord, TableStat,
 };
@@ -407,6 +407,42 @@ pub fn get_provider_today_usage(
         )
         .optional()
         .map_err(|error| error.to_string())
+}
+
+pub fn get_combined_today_usage(connection: &Connection) -> Result<CombinedTodayUsage, String> {
+    let claude_usage = get_provider_today_usage(connection, "claude_code")?;
+    let codex_usage = get_provider_today_usage(connection, "codex")?;
+
+    let claude_input = claude_usage.as_ref().map(|u| u.input_tokens).unwrap_or(0);
+    let claude_output = claude_usage.as_ref().map(|u| u.output_tokens).unwrap_or(0);
+    let claude_total = claude_usage.as_ref().map(|u| u.total_tokens).unwrap_or(0);
+    let claude_requests = claude_usage.as_ref().map(|u| u.request_count).unwrap_or(0);
+
+    let codex_input = codex_usage.as_ref().map(|u| u.input_tokens).unwrap_or(0);
+    let codex_output = codex_usage.as_ref().map(|u| u.output_tokens).unwrap_or(0);
+    let codex_total = codex_usage.as_ref().map(|u| u.total_tokens).unwrap_or(0);
+    let codex_requests = codex_usage.as_ref().map(|u| u.request_count).unwrap_or(0);
+
+    let now = chrono::Utc::now();
+    let date = now.format("%Y-%m-%d").to_string();
+    let last_refresh_at = now.to_rfc3339();
+
+    Ok(CombinedTodayUsage {
+        date,
+        claude_input_tokens: claude_input,
+        claude_output_tokens: claude_output,
+        claude_total_tokens: claude_total,
+        claude_request_count: claude_requests,
+        codex_input_tokens: codex_input,
+        codex_output_tokens: codex_output,
+        codex_total_tokens: codex_total,
+        codex_request_count: codex_requests,
+        combined_input_tokens: claude_input + codex_input,
+        combined_output_tokens: claude_output + codex_output,
+        combined_total_tokens: claude_total + codex_total,
+        combined_request_count: claude_requests + codex_requests,
+        last_refresh_at,
+    })
 }
 
 pub fn list_recent_request_records(

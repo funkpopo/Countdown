@@ -3,7 +3,8 @@ use tauri::{AppHandle, Manager};
 use crate::db;
 use crate::models::{
     BootstrapInfo, ClaudeCodeSyncSummary, ClaudeOverview, CodexOverview, CodexSyncSummary,
-    DatabaseHealth, DatabaseSummary, ProviderProfileRecord, ProviderProfileUpsertInput,
+    CombinedTodayUsage, DatabaseHealth, DatabaseSummary, ProviderProfileRecord,
+    ProviderProfileUpsertInput,
 };
 
 #[tauri::command]
@@ -97,4 +98,10 @@ pub async fn sync_claude_code_sessions(app: AppHandle) -> Result<ClaudeCodeSyncS
 pub fn get_claude_code_overview(app: AppHandle) -> Result<ClaudeOverview, String> {
     db::initialize(&app)?;
     db::claude_code_overview(&app)
+}
+
+#[tauri::command]
+pub fn get_combined_today_usage(app: AppHandle) -> Result<CombinedTodayUsage, String> {
+    db::initialize(&app)?;
+    db::combined_today_usage(&app)
 }

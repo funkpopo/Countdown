@@ -142,6 +142,23 @@ export type ClaudeCodeSyncSummary = {
   todayUsage: DailyUsageRecord | null;
 };
 
+export type CombinedTodayUsage = {
+  date: string;
+  claudeInputTokens: number;
+  claudeOutputTokens: number;
+  claudeTotalTokens: number;
+  claudeRequestCount: number;
+  codexInputTokens: number;
+  codexOutputTokens: number;
+  codexTotalTokens: number;
+  codexRequestCount: number;
+  combinedInputTokens: number;
+  combinedOutputTokens: number;
+  combinedTotalTokens: number;
+  combinedRequestCount: number;
+  lastRefreshAt: string;
+};
+
 export async function getBootstrapInfo(): Promise<BootstrapInfo> {
   return invoke<BootstrapInfo>("get_bootstrap_info");
 }
@@ -182,4 +199,8 @@ export async function syncClaudeCodeSessions(): Promise<ClaudeCodeSyncSummary> {
 
 export async function getClaudeCodeOverview(): Promise<ClaudeOverview> {
   return invoke<ClaudeOverview>("get_claude_code_overview");
+}
+
+export async function getCombinedTodayUsage(): Promise<CombinedTodayUsage> {
+  return invoke<CombinedTodayUsage>("get_combined_today_usage");
 }
