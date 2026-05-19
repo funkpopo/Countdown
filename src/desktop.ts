@@ -10,6 +10,7 @@ export type BootstrapInfo = {
   phase1Complete: boolean;
   phase2Complete: boolean;
   phase3Complete: boolean;
+  phase4Complete: boolean;
 };
 
 export type DatabaseHealth = {
@@ -120,6 +121,27 @@ export type CodexSyncSummary = {
   todayUsage: DailyUsageRecord | null;
 };
 
+export type ClaudeOverview = {
+  dataDir: string;
+  dataDirExists: boolean;
+  sessionCount: number;
+  requestCount: number;
+  todayUsage: DailyUsageRecord | null;
+  recentRequests: RequestRecordListItem[];
+};
+
+export type ClaudeCodeSyncSummary = {
+  dataDir: string;
+  dataDirExists: boolean;
+  scannedFiles: number;
+  importedSessions: number;
+  importedRequests: number;
+  skippedIncompleteSessions: number;
+  sessionCount: number;
+  requestCount: number;
+  todayUsage: DailyUsageRecord | null;
+};
+
 export async function getBootstrapInfo(): Promise<BootstrapInfo> {
   return invoke<BootstrapInfo>("get_bootstrap_info");
 }
@@ -152,4 +174,12 @@ export async function syncCodexSessions(): Promise<CodexSyncSummary> {
 
 export async function getCodexOverview(): Promise<CodexOverview> {
   return invoke<CodexOverview>("get_codex_overview");
+}
+
+export async function syncClaudeCodeSessions(): Promise<ClaudeCodeSyncSummary> {
+  return invoke<ClaudeCodeSyncSummary>("sync_claude_code_sessions");
+}
+
+export async function getClaudeCodeOverview(): Promise<ClaudeOverview> {
+  return invoke<ClaudeOverview>("get_claude_code_overview");
 }

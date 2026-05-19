@@ -2,8 +2,8 @@ use tauri::{AppHandle, Manager};
 
 use crate::db;
 use crate::models::{
-    BootstrapInfo, CodexOverview, CodexSyncSummary, DatabaseHealth, DatabaseSummary,
-    ProviderProfileRecord, ProviderProfileUpsertInput,
+    BootstrapInfo, ClaudeCodeSyncSummary, ClaudeOverview, CodexOverview, CodexSyncSummary,
+    DatabaseHealth, DatabaseSummary, ProviderProfileRecord, ProviderProfileUpsertInput,
 };
 
 #[tauri::command]
@@ -24,7 +24,8 @@ pub fn get_bootstrap_info(app: AppHandle) -> Result<BootstrapInfo, String> {
         phase0_complete: true,
         phase1_complete: true,
         phase2_complete: true,
-        phase3_complete: false,
+        phase3_complete: true,
+        phase4_complete: true,
     })
 }
 
@@ -61,13 +62,39 @@ pub fn save_provider_profile(
 }
 
 #[tauri::command]
-pub fn sync_codex_sessions(app: AppHandle) -> Result<CodexSyncSummary, String> {
-    db::initialize(&app)?;
-    db::sync_codex_sessions(&app)
+pub async fn sync_codex_sessions(app: AppHandle) -> Result<CodexSyncSummary, String> {
+    let app_clone = app.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        db::initialize(&app_clone)?;
+        db::sync_codex_sessions(&app_clone)
+    })
+    .await
+    .map_err(|error| error.to_string())?;
+
+    result
 }
 
 #[tauri::command]
 pub fn get_codex_overview(app: AppHandle) -> Result<CodexOverview, String> {
     db::initialize(&app)?;
     db::codex_overview(&app)
+}
+
+#[tauri::command]
+pub async fn sync_claude_code_sessions(app: AppHandle) -> Result<ClaudeCodeSyncSummary, String> {
+    let app_clone = app.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        db::initialize(&app_clone)?;
+        db::sync_claude_code_sessions(&app_clone)
+    })
+    .await
+    .map_err(|error| error.to_string())?;
+
+    result
+}
+
+#[tauri::command]
+pub fn get_claude_code_overview(app: AppHandle) -> Result<ClaudeOverview, String> {
+    db::initialize(&app)?;
+    db::claude_code_overview(&app)
 }

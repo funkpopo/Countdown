@@ -9,8 +9,8 @@ use tauri::{path::BaseDirectory, AppHandle, Manager};
 
 use crate::collectors::manager::CollectorManager;
 use crate::models::{
-    CodexOverview, CodexSyncSummary, DatabaseHealth, DatabaseSummary, ProviderProfileRecord,
-    ProviderProfileUpsertInput,
+    ClaudeCodeSyncSummary, ClaudeOverview, CodexOverview, CodexSyncSummary, DatabaseHealth,
+    DatabaseSummary, ProviderProfileRecord, ProviderProfileUpsertInput,
 };
 
 const DATABASE_FILE: &str = "countdown.db";
@@ -106,6 +106,16 @@ pub fn sync_codex_sessions(app: &AppHandle) -> Result<CodexSyncSummary, String> 
 pub fn codex_overview(app: &AppHandle) -> Result<CodexOverview, String> {
     let connection = open_connection(app)?;
     CollectorManager::get_codex_overview(&connection)
+}
+
+pub fn sync_claude_code_sessions(app: &AppHandle) -> Result<ClaudeCodeSyncSummary, String> {
+    let mut connection = open_connection(app)?;
+    CollectorManager::sync_claude_code_sessions(&mut connection)
+}
+
+pub fn claude_code_overview(app: &AppHandle) -> Result<ClaudeOverview, String> {
+    let connection = open_connection(app)?;
+    CollectorManager::get_claude_code_overview(&connection)
 }
 
 pub(crate) fn open_connection(app: &AppHandle) -> Result<Connection, String> {

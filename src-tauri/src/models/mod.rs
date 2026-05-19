@@ -12,6 +12,7 @@ pub struct BootstrapInfo {
     pub phase1_complete: bool,
     pub phase2_complete: bool,
     pub phase3_complete: bool,
+    pub phase4_complete: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -137,6 +138,31 @@ pub struct CodexSyncSummary {
     pub imported_sessions: i64,
     pub imported_requests: i64,
     pub skipped_incomplete_turns: i64,
+    pub session_count: i64,
+    pub request_count: i64,
+    pub today_usage: Option<DailyUsageRecord>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClaudeOverview {
+    pub data_dir: String,
+    pub data_dir_exists: bool,
+    pub session_count: i64,
+    pub request_count: i64,
+    pub today_usage: Option<DailyUsageRecord>,
+    pub recent_requests: Vec<RequestRecordListItem>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClaudeCodeSyncSummary {
+    pub data_dir: String,
+    pub data_dir_exists: bool,
+    pub scanned_files: i64,
+    pub imported_sessions: i64,
+    pub imported_requests: i64,
+    pub skipped_incomplete_sessions: i64,
     pub session_count: i64,
     pub request_count: i64,
     pub today_usage: Option<DailyUsageRecord>,

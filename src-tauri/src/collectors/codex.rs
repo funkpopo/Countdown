@@ -64,7 +64,6 @@ struct TurnState {
 struct ParsedRollout {
     session: Option<SessionUpsertRecord>,
     requests: Vec<RequestRecordUpsertRecord>,
-    skipped_incomplete_turns: i64,
 }
 
 impl CodexCollector {
@@ -87,7 +86,6 @@ impl CodexCollector {
 
         let mut sessions = Vec::new();
         let mut requests = Vec::new();
-        let mut skipped_incomplete_turns = 0_i64;
 
         for file in &files {
             let parsed = parse_rollout_file(file)?;
@@ -95,7 +93,6 @@ impl CodexCollector {
                 sessions.push(session);
             }
             requests.extend(parsed.requests);
-            skipped_incomplete_turns += parsed.skipped_incomplete_turns;
         }
 
         Ok(CodexImportResult {
@@ -104,7 +101,7 @@ impl CodexCollector {
             scanned_files: files.len() as i64,
             sessions,
             requests,
-            skipped_incomplete_turns,
+            skipped_incomplete_turns: 0,
         })
     }
 }
@@ -248,12 +245,10 @@ fn build_parsed_rollout(
         return ParsedRollout {
             session: None,
             requests: Vec::new(),
-            skipped_incomplete_turns: 0,
         };
     };
 
     let mut requests = Vec::new();
-    let mut skipped_incomplete_turns = 0_i64;
     let source_file = path.display().to_string();
     let entrypoint = build_entrypoint(&session_meta);
     let mut finished_timestamps = Vec::new();
@@ -264,11 +259,6 @@ fn build_parsed_rollout(
     turn_list.sort_by(|left, right| left.turn_id.cmp(&right.turn_id));
 
     for state in turn_list {
-        if state.finished_at.is_none() {
-            skipped_incomplete_turns += 1;
-            continue;
-        }
-
         let started_at = state
             .started_at
             .clone()
@@ -277,6 +267,11 @@ fn build_parsed_rollout(
         let token_usage = state.token_usage.clone().unwrap_or_default();
         let is_stream = state.ttft_ms.is_some() || state.token_updates > 1;
         let model = state.model.clone();
+        let status = if finished_at.is_some() {
+            state.status.clone().unwrap_or_else(|| "completed".to_string())
+        } else {
+            "incomplete".to_string()
+        };
 
         if session_model.is_none() {
             session_model = model.clone();
@@ -319,7 +314,7 @@ fn build_parsed_rollout(
             reasoning_tokens: token_usage.reasoning_tokens,
             ttft_ms: state.ttft_ms,
             duration_ms: state.duration_ms,
-            status: state.status.unwrap_or_else(|| "completed".to_string()),
+            status,
             started_at,
             finished_at,
             request_summary_json: Some(request_summary_json),
@@ -353,7 +348,6 @@ fn build_parsed_rollout(
             metadata_json: Some(session_metadata_json),
         }),
         requests,
-        skipped_incomplete_turns,
     }
 }
 
@@ -459,7 +453,7 @@ mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
-    fn parses_completed_turn_and_skips_incomplete_turn() {
+    fn parses_completed_turn_and_stores_incomplete_turn() {
         let file_path = unique_test_path("codex-rollout");
         let content = [
             r#"{"timestamp":"2026-05-18T07:58:47.727Z","type":"session_meta","payload":{"id":"session-1","timestamp":"2026-05-18T07:58:47.727Z","cwd":"d:\\Projects\\Countdown","originator":"codex_vscode","cli_version":"0.131.0","source":"vscode","thread_source":"user","model_provider":"openai"}}"#,
@@ -480,19 +474,25 @@ mod tests {
 
         let session = parsed.session.expect("session metadata must exist");
         assert_eq!(session.session_id, "session-1");
-        assert_eq!(parsed.requests.len(), 1);
-        assert_eq!(parsed.skipped_incomplete_turns, 1);
+        assert_eq!(parsed.requests.len(), 2);
 
-        let request = &parsed.requests[0];
-        assert_eq!(request.request_id.as_deref(), Some("turn-1"));
-        assert_eq!(request.model.as_deref(), Some("gpt-5.4"));
-        assert!(request.is_stream);
-        assert_eq!(request.input_tokens, 1200);
-        assert_eq!(request.cached_input_tokens, 300);
-        assert_eq!(request.output_tokens, 240);
-        assert_eq!(request.reasoning_tokens, 50);
-        assert_eq!(request.ttft_ms, Some(641));
-        assert_eq!(request.duration_ms, Some(2947));
+        let completed = &parsed.requests[0];
+        assert_eq!(completed.request_id.as_deref(), Some("turn-1"));
+        assert_eq!(completed.model.as_deref(), Some("gpt-5.4"));
+        assert!(completed.is_stream);
+        assert_eq!(completed.input_tokens, 1200);
+        assert_eq!(completed.cached_input_tokens, 300);
+        assert_eq!(completed.output_tokens, 240);
+        assert_eq!(completed.reasoning_tokens, 50);
+        assert_eq!(completed.ttft_ms, Some(641));
+        assert_eq!(completed.duration_ms, Some(2947));
+        assert_eq!(completed.status, "completed");
+
+        let incomplete = &parsed.requests[1];
+        assert_eq!(incomplete.request_id.as_deref(), Some("turn-2"));
+        assert_eq!(incomplete.model.as_deref(), Some("gpt-5.4-mini"));
+        assert_eq!(incomplete.status, "incomplete");
+        assert!(incomplete.finished_at.is_none());
     }
 
     fn unique_test_path(prefix: &str) -> PathBuf {
