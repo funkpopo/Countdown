@@ -128,6 +128,15 @@ pub async fn start_compat_api_server(
     app: AppHandle,
     listen_address: String,
 ) -> Result<CompatApiStatus, String> {
+    if let Some(server) = app.try_state::<CompatApiServer>() {
+        if server.get_status().await.running {
+            return Ok(server.get_status().await);
+        }
+
+        server.start().await?;
+        return Ok(server.get_status().await);
+    }
+
     let server = CompatApiServer::new(app.clone(), listen_address);
     app.manage(server);
 

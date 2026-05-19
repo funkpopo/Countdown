@@ -303,33 +303,6 @@ pub struct PaginatedRequestRecords {
     pub offset: i64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct NormalizedRequest {
-    pub provider_kind: String,
-    pub upstream_kind: String,
-    pub model: String,
-    pub messages_or_input: serde_json::Value,
-    pub tools: Option<serde_json::Value>,
-    pub temperature: Option<f64>,
-    pub max_tokens: Option<i64>,
-    pub stream: bool,
-    pub metadata: Option<serde_json::Value>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct NormalizedResponse {
-    pub request_id: String,
-    pub model: String,
-    pub input_tokens: i64,
-    pub output_tokens: i64,
-    pub finish_reason: String,
-    pub duration_ms: i64,
-    pub ttft_ms: Option<i64>,
-    pub raw_protocol: String,
-}
-
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OpenAIChatCompletionRequest {
@@ -346,6 +319,8 @@ pub struct OpenAIChatCompletionRequest {
 pub struct OpenAIChatMessage {
     pub role: String,
     pub content: serde_json::Value,
+    #[serde(flatten)]
+    pub extra: serde_json::Map<String, serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -375,24 +350,6 @@ pub struct OpenAIUsage {
     pub total_tokens: i64,
 }
 
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct OpenAIChatCompletionChunk {
-    pub id: String,
-    pub object: String,
-    pub created: i64,
-    pub model: String,
-    pub choices: Vec<OpenAIChatChunkChoice>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct OpenAIChatChunkChoice {
-    pub index: i64,
-    pub delta: OpenAIChatMessage,
-    pub finish_reason: Option<String>,
-}
-
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OpenAIResponsesRequest {
@@ -413,16 +370,6 @@ pub struct OpenAIResponsesResponse {
     pub model: String,
     pub output: Vec<serde_json::Value>,
     pub usage: OpenAIUsage,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct OpenAIResponsesStreamChunk {
-    pub id: String,
-    pub object: String,
-    pub created_at: i64,
-    pub model: String,
-    pub delta: serde_json::Value,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -461,34 +408,6 @@ pub struct AnthropicMessagesResponse {
 pub struct AnthropicUsage {
     pub input_tokens: i64,
     pub output_tokens: i64,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AnthropicStreamEvent {
-    pub type_field: String,
-    pub message: Option<AnthropicStreamMessage>,
-    pub delta: Option<AnthropicStreamDelta>,
-    pub usage: Option<AnthropicUsage>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AnthropicStreamMessage {
-    pub id: String,
-    #[serde(rename = "type")]
-    pub type_field: String,
-    pub role: String,
-    pub model: String,
-    pub content: Vec<serde_json::Value>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AnthropicStreamDelta {
-    #[serde(rename = "type")]
-    pub type_field: String,
-    pub text: String,
 }
 
 #[derive(Debug, Clone, Serialize)]

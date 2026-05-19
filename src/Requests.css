@@ -2,6 +2,9 @@
   max-width: 1240px;
   margin: 0 auto;
   padding: 40px 28px 56px;
+  width: 100%;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .requests-header {
@@ -68,6 +71,7 @@
   background: var(--panel-bg);
   box-shadow: var(--panel-shadow);
   backdrop-filter: blur(12px);
+  min-height: 0;
 }
 
 .request-row {
@@ -147,7 +151,7 @@
   background: linear-gradient(180deg, #0f172a 0%, #111827 52%, #0b1220 100%);
   border-left: 1px solid var(--panel-border);
   box-shadow: -12px 0 40px rgba(0, 0, 0, 0.4);
-  overflow-y: auto;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
 }
@@ -189,6 +193,8 @@
 .drawer-content {
   padding: 28px;
   flex: 1;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .detail-section {
@@ -267,6 +273,7 @@
   background: rgba(15, 23, 42, 0.72);
   border: 1px solid rgba(148, 163, 184, 0.12);
   overflow-x: auto;
+  max-height: 420px;
   font-size: 0.85rem;
   line-height: 1.5;
   margin: 0;

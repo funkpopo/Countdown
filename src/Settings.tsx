@@ -231,6 +231,18 @@ function formatRouteSummary(profile: ProviderProfileRecord): string {
   return "default";
 }
 
+function formatApiFormat(value: string): string {
+  if (value === "anthropic") {
+    return "Anthropic";
+  }
+
+  if (value === "custom") {
+    return "Custom";
+  }
+
+  return "OpenAI";
+}
+
 function Settings() {
   const [profiles, setProfiles] = useState<ProviderProfileRecord[]>([]);
   const [compatStatus, setCompatStatus] = useState<CompatApiStatus | null>(null);
@@ -250,6 +262,9 @@ function Settings() {
   });
   const [launchArgsText, setLaunchArgsText] = useState("");
   const [launchResult, setLaunchResult] = useState<ManagedLaunchResult | null>(null);
+  const enabledProfiles = profiles.filter((profile) => profile.enabled);
+  const openAiProfiles = profiles.filter((profile) => profile.apiFormat === "openai" || profile.apiFormat === "custom");
+  const anthropicProfiles = profiles.filter((profile) => profile.apiFormat === "anthropic");
 
   const refresh = () => {
     startTransition(async () => {
@@ -478,7 +493,7 @@ function Settings() {
       <section className="settings-block">
         <div className="settings-row">
           <div className="settings-group grow">
-            <label htmlFor="listenAddress">Listen</label>
+            <label htmlFor="listenAddress">Local Compat API</label>
             <input
               id="listenAddress"
               type="text"
@@ -513,17 +528,23 @@ function Settings() {
           <span className={`status-pill ${compatStatus?.running ? "running" : "stopped"}`}>
             {compatStatus?.running ? "Running" : "Stopped"}
           </span>
-          <span>{compatStatus?.profilesCount ?? profiles.length} profiles</span>
+          <span>{enabledProfiles.length}/{profiles.length} enabled</span>
+          <span>{openAiProfiles.length} OpenAI-format</span>
+          <span>{anthropicProfiles.length} Anthropic-format</span>
           <span className="mono">{compatStatus?.listenAddress ?? listenAddress}</span>
           {compatStatus?.startedAt ? (
             <span>{new Date(compatStatus.startedAt).toLocaleString()}</span>
           ) : null}
         </div>
+        <div className="compat-help">
+          <span>Claude Code endpoint: <code>http://{compatStatus?.listenAddress ?? listenAddress}/v1/messages</code></span>
+          <span>OpenAI clients: <code>http://{compatStatus?.listenAddress ?? listenAddress}/v1/chat/completions</code></span>
+        </div>
       </section>
 
       <section className="settings-block">
         <div className="section-header">
-          <h2>Provider Profiles</h2>
+          <h2>Account / API Pool</h2>
           <div className="settings-actions">
             <button type="button" onClick={() => setEditingProfile(createEmptyProfile())}>
               New
@@ -542,7 +563,7 @@ function Settings() {
     "apiFormat": "openai",
     "baseUrl": "https://api.deepseek.com",
     "apiKeyEnv": "DEEPSEEK_API_KEY",
-    "modelPrefixes": ["deepseek-"]
+    "modelPrefixes": ["deepseek-", "claude-"]
   }
 ]`}
           />
@@ -566,7 +587,7 @@ function Settings() {
             <thead>
               <tr>
                 <th>Name</th>
-                <th>Protocol</th>
+                <th>Format</th>
                 <th>Route</th>
                 <th>Base URL</th>
                 <th>Key Env</th>
@@ -583,7 +604,7 @@ function Settings() {
                       <span className="mono">{profile.providerKey}</span>
                     </div>
                   </td>
-                  <td>{profile.apiFormat}</td>
+                  <td>{formatApiFormat(profile.apiFormat)}</td>
                   <td>{formatRouteSummary(profile)}</td>
                   <td className="mono">{profile.baseUrl ?? "default"}</td>
                   <td className="mono">{profile.apiKeyEnv ?? "none"}</td>
@@ -667,7 +688,7 @@ function ProfileForm({
         </div>
 
         <div className="settings-group">
-          <label htmlFor="apiFormat">Protocol</label>
+          <label htmlFor="apiFormat">API Format</label>
           <select
             id="apiFormat"
             value={form.apiFormat}
@@ -675,7 +696,7 @@ function ProfileForm({
           >
             <option value="openai">OpenAI</option>
             <option value="anthropic">Anthropic</option>
-            <option value="custom">Custom</option>
+            <option value="custom">Custom OpenAI-compatible</option>
           </select>
         </div>
 
@@ -702,18 +723,18 @@ function ProfileForm({
         </div>
 
         <div className="settings-group full-width">
-          <label htmlFor="modelPrefixes">Model Prefixes</label>
+          <label htmlFor="modelPrefixes">Route Prefixes</label>
           <input
             id="modelPrefixes"
             type="text"
             value={form.modelPrefixesText}
             onChange={(e) => setForm({ ...form, modelPrefixesText: e.target.value })}
-            placeholder="gpt-, deepseek-, qwen-"
+            placeholder="gpt-, deepseek-, qwen-, claude-"
           />
         </div>
 
         <div className="settings-group full-width">
-          <label htmlFor="models">Exact Models</label>
+          <label htmlFor="models">Exact Model Routes</label>
           <input
             id="models"
             type="text"

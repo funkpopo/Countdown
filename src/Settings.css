@@ -2,6 +2,9 @@
   max-width: 1180px;
   margin: 0 auto;
   padding: 24px 28px 40px;
+  width: 100%;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .settings-block {
@@ -67,6 +70,8 @@
 
 .batch-import textarea {
   min-height: 184px;
+  max-height: 340px;
+  overflow: auto;
   resize: vertical;
   font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
   font-size: 0.87rem;
@@ -86,6 +91,19 @@
   margin-top: 14px;
   color: var(--muted);
   font-size: 0.9rem;
+}
+
+.compat-help {
+  display: flex;
+  gap: 10px 18px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+.compat-help code {
+  color: var(--text-color);
 }
 
 .status-pill {
@@ -140,7 +158,8 @@
 }
 
 .profiles-table-shell {
-  overflow-x: auto;
+  max-height: min(520px, 58vh);
+  overflow: auto;
 }
 
 .profiles-table {

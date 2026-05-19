@@ -11,6 +11,27 @@ body {
   background: transparent;
 }
 
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(226, 232, 240, 0.36) rgba(255, 255, 255, 0.04);
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+*::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: rgba(226, 232, 240, 0.36);
+  background-clip: content-box;
+}
+
 .quick-view-shell {
   width: 100vw;
   height: 100vh;
@@ -131,6 +152,7 @@ body {
   display: flex;
   flex: 1;
   min-height: 0;
+  overflow: auto;
 }
 
 .provider-grid {
