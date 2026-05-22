@@ -356,8 +356,8 @@ function Requests() {
       <section className="requests-table-panel">
         {data?.records.length ? (
           <>
-            <div className="table-shell">
-              <table className="request-table">
+            <div className="table-container">
+              <table className="data-table">
                 <thead>
                   <tr>
                     <th>Model / Request ID</th>
