@@ -3,10 +3,12 @@ import { listen } from "@tauri-apps/api/event";
 import {
   getClaudeCodeOverview,
   getCodexOverview,
+  getCombinedUsage,
   getDatabaseSummary,
   initializeLocalDatabase,
   type ClaudeOverview,
   type CodexOverview,
+  type CombinedUsage,
   type DailyUsageRecord,
   type DatabaseSummary,
   type RequestRecordListItem,
@@ -116,12 +118,53 @@ function ChevronLeftIcon() {
   );
 }
 
+type Period = "today" | "week" | "month";
+
+const PERIOD_LABELS: Record<Period, string> = {
+  today: "Today",
+  week: "This Week",
+  month: "This Month",
+};
+
+function getDateRangeForPeriod(period: Period): { startDate: string; endDate: string } {
+  const now = new Date();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const y = now.getFullYear();
+  const m = pad(now.getMonth() + 1);
+  const d = pad(now.getDate());
+  const endDate = `${y}-${m}-${d}`;
+
+  if (period === "today") {
+    return { startDate: endDate, endDate };
+  }
+
+  if (period === "week") {
+    const start = new Date(now);
+    const day = start.getDay();
+    const diff = day === 0 ? 6 : day - 1;
+    start.setDate(start.getDate() - diff);
+    return {
+      startDate: `${start.getFullYear()}-${pad(start.getMonth() + 1)}-${pad(start.getDate())}`,
+      endDate,
+    };
+  }
+
+  const start = new Date(now.getFullYear(), now.getMonth(), 1);
+  return {
+    startDate: `${start.getFullYear()}-${pad(start.getMonth() + 1)}-${pad(start.getDate())}`,
+    endDate,
+  };
+}
+
 type OverviewPageProps = {
   databaseSummary: DatabaseSummary | null;
   codexOverview: CodexOverview | null;
   claudeOverview: ClaudeOverview | null;
+  periodUsage: CombinedUsage | null;
+  period: Period;
   error: string | null;
   isPending: boolean;
+  onPeriodChange: (period: Period) => void;
   onRefresh: () => void;
   onInitializeDatabase: () => void;
 };
@@ -130,8 +173,11 @@ const OverviewPage = memo(function OverviewPage({
   databaseSummary,
   codexOverview,
   claudeOverview,
+  periodUsage,
+  period,
   error,
   isPending,
+  onPeriodChange,
   onRefresh,
   onInitializeDatabase,
 }: OverviewPageProps) {
@@ -166,17 +212,38 @@ const OverviewPage = memo(function OverviewPage({
 
       {error ? <div className="notice error">{error}</div> : null}
 
+      <div className="period-tabs">
+        {(["today", "week", "month"] as const).map((p) => (
+          <button
+            key={p}
+            className={"period-tab" + (period === p ? " active" : "")}
+            onClick={() => onPeriodChange(p)}
+          >
+            {PERIOD_LABELS[p]}
+          </button>
+        ))}
+        <span className="period-range">
+          {periodUsage
+            ? `${periodUsage.startDate} ~ ${periodUsage.endDate}`
+            : "..."}
+        </span>
+      </div>
+
       <div className="grid">
         <div className="card">
           <div className="card-header">
-            <h2>Codex Today</h2>
-            <span className="card-meta">{formatNumber(codexOverview?.sessionCount)} sessions</span>
+            <h2>Codex</h2>
+            <span className="card-meta">
+              {periodUsage
+                ? formatNumber(codexOverview?.sessionCount) + " sessions"
+                : formatNumber(codexOverview?.sessionCount) + " sessions"}
+            </span>
           </div>
           <div className="stats">
-            {renderUsageStat("Input", formatNumber(codexTodayUsage?.inputTokens))}
-            {renderUsageStat("Output", formatNumber(codexTodayUsage?.outputTokens))}
-            {renderUsageStat("Total", formatNumber(codexTodayUsage?.totalTokens))}
-            {renderUsageStat("Requests", formatNumber(codexTodayUsage?.requestCount))}
+            {renderUsageStat("Input", formatNumber(periodUsage?.codexInputTokens))}
+            {renderUsageStat("Output", formatNumber(periodUsage?.codexOutputTokens))}
+            {renderUsageStat("Total", formatNumber(periodUsage?.codexTotalTokens))}
+            {renderUsageStat("Requests", formatNumber(periodUsage?.codexRequestCount))}
             {renderUsageStat("Avg TTFT", formatMs(codexTodayUsage?.avgTtftMs ?? null))}
             {renderUsageStat("Avg Duration", formatMs(codexTodayUsage?.avgDurationMs ?? null))}
           </div>
@@ -184,16 +251,16 @@ const OverviewPage = memo(function OverviewPage({
 
         <div className="card">
           <div className="card-header">
-            <h2>Claude Today</h2>
+            <h2>Claude Code</h2>
             <span className="card-meta">
               {formatNumber(claudeOverview?.sessionCount)} sessions
             </span>
           </div>
           <div className="stats">
-            {renderUsageStat("Input", formatNumber(claudeTodayUsage?.inputTokens))}
-            {renderUsageStat("Output", formatNumber(claudeTodayUsage?.outputTokens))}
-            {renderUsageStat("Total", formatNumber(claudeTodayUsage?.totalTokens))}
-            {renderUsageStat("Requests", formatNumber(claudeTodayUsage?.requestCount))}
+            {renderUsageStat("Input", formatNumber(periodUsage?.claudeInputTokens))}
+            {renderUsageStat("Output", formatNumber(periodUsage?.claudeOutputTokens))}
+            {renderUsageStat("Total", formatNumber(periodUsage?.claudeTotalTokens))}
+            {renderUsageStat("Requests", formatNumber(periodUsage?.claudeRequestCount))}
             {renderUsageStat("Avg TTFT", formatMs(claudeTodayUsage?.avgTtftMs ?? null))}
             {renderUsageStat("Avg Duration", formatMs(claudeTodayUsage?.avgDurationMs ?? null))}
           </div>
@@ -286,12 +353,23 @@ function App() {
   const [databaseSummary, setDatabaseSummary] = useState<DatabaseSummary | null>(null);
   const [codexOverview, setCodexOverview] = useState<CodexOverview | null>(null);
   const [claudeOverview, setClaudeOverview] = useState<ClaudeOverview | null>(null);
+  const [period, setPeriod] = useState<Period>("today");
+  const [periodUsage, setPeriodUsage] = useState<CombinedUsage | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const [currentPage, setCurrentPage] = useState<"overview" | "requests" | "settings">("overview");
   const [visitedRequests, setVisitedRequests] = useState(false);
   const [visitedSettings, setVisitedSettings] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+
+  const fetchPeriodUsage = async (p: Period) => {
+    try {
+      const usage = await getCombinedUsage(getDateRangeForPeriod(p));
+      setPeriodUsage(usage);
+    } catch {
+      // period fetch errors are non-critical
+    }
+  };
 
   const refresh = () => {
     startTransition(async () => {
@@ -315,6 +393,7 @@ function App() {
 
   useEffect(() => {
     refresh();
+    fetchPeriodUsage(period);
   }, []);
 
   useEffect(() => {
@@ -325,6 +404,7 @@ function App() {
     void Promise.all([
       listen("usage-sync-completed", () => {
         refresh();
+        fetchPeriodUsage(period);
       }),
       listen<{ error?: string }>("usage-sync-failed", (event) => {
         setError(event.payload?.error ?? "Background sync failed.");
@@ -344,7 +424,12 @@ function App() {
       unlistenCompleted?.();
       unlistenFailed?.();
     };
-  }, []);
+  }, [period]);
+
+  const handlePeriodChange = (p: Period) => {
+    setPeriod(p);
+    fetchPeriodUsage(p);
+  };
 
   const handleInitializeDatabase = async () => {
     startTransition(async () => {
@@ -352,6 +437,7 @@ function App() {
         setError(null);
         await initializeLocalDatabase();
         refresh();
+        fetchPeriodUsage(period);
       } catch (initError) {
         setError(
           initError instanceof Error ? initError.message : "Failed to initialize database.",
@@ -401,8 +487,11 @@ function App() {
             databaseSummary={databaseSummary}
             codexOverview={codexOverview}
             claudeOverview={claudeOverview}
+            periodUsage={periodUsage}
+            period={period}
             error={error}
             isPending={isPending}
+            onPeriodChange={handlePeriodChange}
             onRefresh={refresh}
             onInitializeDatabase={handleInitializeDatabase}
           />

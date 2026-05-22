@@ -1,7 +1,7 @@
 use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::models::{
-    AppliedMigration, CombinedTodayUsage, DailyUsageRecord, DatabaseSummary,
+    AppliedMigration, CombinedTodayUsage, CombinedUsage, DailyUsageRecord, DatabaseSummary,
     PaginatedRequestRecords, ProviderProfileRecord, ProviderProfileUpsertInput, RequestFilterInput,
     RequestRecordDetail, RequestRecordListItem, RequestRecordUpsertRecord, SessionUpsertRecord,
     TableStat,
@@ -501,6 +501,61 @@ pub fn get_combined_today_usage(connection: &Connection) -> Result<CombinedToday
     })
 }
 
+fn get_provider_agg_for_range(
+    connection: &Connection,
+    provider: &str,
+    start_date: &str,
+    end_date: &str,
+) -> Result<(i64, i64, i64, i64), String> {
+    connection
+        .query_row(
+            "SELECT
+               COALESCE(SUM(input_tokens), 0),
+               COALESCE(SUM(output_tokens), 0),
+               COALESCE(SUM(total_tokens), 0),
+               COALESCE(SUM(request_count), 0)
+             FROM daily_usage
+             WHERE provider = ?1 AND date >= ?2 AND date <= ?3",
+            params![provider, start_date, end_date],
+            |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, i64>(3)?,
+                ))
+            },
+        )
+        .map_err(|error| error.to_string())
+}
+
+pub fn get_combined_usage_for_range(
+    connection: &Connection,
+    start_date: &str,
+    end_date: &str,
+) -> Result<CombinedUsage, String> {
+    let (ci, co, ct, cr) = get_provider_agg_for_range(connection, "claude_code", start_date, end_date)?;
+    let (xi, xo, xt, xr) = get_provider_agg_for_range(connection, "codex", start_date, end_date)?;
+
+    Ok(CombinedUsage {
+        start_date: start_date.to_string(),
+        end_date: end_date.to_string(),
+        claude_input_tokens: ci,
+        claude_output_tokens: co,
+        claude_total_tokens: ct,
+        claude_request_count: cr,
+        codex_input_tokens: xi,
+        codex_output_tokens: xo,
+        codex_total_tokens: xt,
+        codex_request_count: xr,
+        combined_input_tokens: ci + xi,
+        combined_output_tokens: co + xo,
+        combined_total_tokens: ct + xt,
+        combined_request_count: cr + xr,
+        last_refresh_at: chrono::Utc::now().to_rfc3339(),
+    })
+}
+
 pub fn list_recent_request_records(
     connection: &Connection,
     provider: &str,
@@ -639,6 +694,18 @@ pub fn list_filtered_request_records(
     if let Some(is_stream) = filter.is_stream {
         where_clauses.push(format!("rr.is_stream = ?{}", param_index));
         param_values.push(Box::new(i64::from(is_stream)));
+        param_index += 1;
+    }
+
+    if let Some(ref after) = filter.started_after {
+        where_clauses.push(format!("rr.started_at >= ?{}", param_index));
+        param_values.push(Box::new(after.clone()));
+        param_index += 1;
+    }
+
+    if let Some(ref before) = filter.started_before {
+        where_clauses.push(format!("rr.started_at <= ?{}", param_index));
+        param_values.push(Box::new(before.clone()));
         param_index += 1;
     }
 

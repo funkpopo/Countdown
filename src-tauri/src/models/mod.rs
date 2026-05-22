@@ -101,6 +101,33 @@ pub struct CombinedTodayUsage {
     pub last_refresh_at: String,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DateRangeInput {
+    pub start_date: String,
+    pub end_date: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CombinedUsage {
+    pub start_date: String,
+    pub end_date: String,
+    pub claude_input_tokens: i64,
+    pub claude_output_tokens: i64,
+    pub claude_total_tokens: i64,
+    pub claude_request_count: i64,
+    pub codex_input_tokens: i64,
+    pub codex_output_tokens: i64,
+    pub codex_total_tokens: i64,
+    pub codex_request_count: i64,
+    pub combined_input_tokens: i64,
+    pub combined_output_tokens: i64,
+    pub combined_total_tokens: i64,
+    pub combined_request_count: i64,
+    pub last_refresh_at: String,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DailyUsageRecord {
@@ -290,6 +317,8 @@ pub struct RequestFilterInput {
     pub provider: Option<String>,
     pub model: Option<String>,
     pub is_stream: Option<bool>,
+    pub started_after: Option<String>,
+    pub started_before: Option<String>,
     pub limit: Option<i64>,
     pub offset: Option<i64>,
 }

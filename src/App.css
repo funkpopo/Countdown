@@ -378,6 +378,46 @@ label {
   color: hsl(var(--success));
 }
 
+/* ─── Period tabs ─── */
+
+.period-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 14px;
+  flex-shrink: 0;
+}
+
+.period-tab {
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius);
+  padding: 6px 14px;
+  background: transparent;
+  color: hsl(var(--muted));
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: default;
+  transition: background 120ms, color 120ms, border-color 120ms;
+}
+
+.period-tab:not(:disabled):hover {
+  background: hsl(var(--accent));
+  color: hsl(var(--foreground));
+}
+
+.period-tab.active {
+  background: hsl(var(--primary) / 0.15);
+  border-color: hsl(var(--primary) / 0.4);
+  color: hsl(var(--primary));
+}
+
+.period-range {
+  margin-left: 12px;
+  color: hsl(var(--muted-foreground));
+  font-size: 0.8125rem;
+  font-variant-numeric: tabular-nums;
+}
+
 /* ─── Grid ─── */
 
 .grid {

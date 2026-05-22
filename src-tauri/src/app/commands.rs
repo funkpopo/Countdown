@@ -3,8 +3,8 @@ use tauri::{AppHandle, Manager};
 use crate::compat_api::CompatApiServer;
 use crate::db;
 use crate::models::{
-    BootstrapInfo, ClaudeOverview, CodexOverview, CombinedTodayUsage, CompatApiStatus,
-    DatabaseHealth, DatabaseSummary, ManagedLaunchInput, ManagedLaunchResult,
+    BootstrapInfo, ClaudeOverview, CodexOverview, CombinedTodayUsage, CombinedUsage, CompatApiStatus,
+    DatabaseHealth, DatabaseSummary, DateRangeInput, ManagedLaunchInput, ManagedLaunchResult,
     PaginatedRequestRecords, ProviderProfileRecord, ProviderProfileUpsertInput, RequestFilterInput,
     RequestRecordDetail,
 };
@@ -106,6 +106,15 @@ pub fn get_claude_code_overview(app: AppHandle) -> Result<ClaudeOverview, String
 pub fn get_combined_today_usage(app: AppHandle) -> Result<CombinedTodayUsage, String> {
     db::initialize(&app)?;
     db::combined_today_usage(&app)
+}
+
+#[tauri::command]
+pub fn get_combined_usage(
+    app: AppHandle,
+    range: DateRangeInput,
+) -> Result<CombinedUsage, String> {
+    db::initialize(&app)?;
+    db::combined_usage_for_range(&app, range.start_date, range.end_date)
 }
 
 #[tauri::command]

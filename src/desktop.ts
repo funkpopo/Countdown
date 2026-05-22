@@ -131,6 +131,8 @@ export type RequestFilterInput = {
   provider?: string;
   model?: string;
   isStream?: boolean;
+  startedAfter?: string;
+  startedBefore?: string;
   limit?: number;
   offset?: number;
 };
@@ -162,6 +164,29 @@ export type ClaudeOverview = {
 
 export type CombinedTodayUsage = {
   date: string;
+  claudeInputTokens: number;
+  claudeOutputTokens: number;
+  claudeTotalTokens: number;
+  claudeRequestCount: number;
+  codexInputTokens: number;
+  codexOutputTokens: number;
+  codexTotalTokens: number;
+  codexRequestCount: number;
+  combinedInputTokens: number;
+  combinedOutputTokens: number;
+  combinedTotalTokens: number;
+  combinedRequestCount: number;
+  lastRefreshAt: string;
+};
+
+export type DateRangeInput = {
+  startDate: string;
+  endDate: string;
+};
+
+export type CombinedUsage = {
+  startDate: string;
+  endDate: string;
   claudeInputTokens: number;
   claudeOutputTokens: number;
   claudeTotalTokens: number;
@@ -257,6 +282,10 @@ export async function getClaudeCodeOverview(): Promise<ClaudeOverview> {
 
 export async function getCombinedTodayUsage(): Promise<CombinedTodayUsage> {
   return invoke<CombinedTodayUsage>("get_combined_today_usage");
+}
+
+export async function getCombinedUsage(range: DateRangeInput): Promise<CombinedUsage> {
+  return invoke<CombinedUsage>("get_combined_usage", { range });
 }
 
 export async function listFilteredRequests(

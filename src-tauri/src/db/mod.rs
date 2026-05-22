@@ -10,7 +10,7 @@ use tauri::{path::BaseDirectory, AppHandle, Manager};
 use crate::collectors::manager::CollectorManager;
 use crate::models::{
     ClaudeCodeSyncSummary, ClaudeOverview, CodexOverview, CodexSyncSummary, CombinedTodayUsage,
-    DatabaseHealth, DatabaseSummary, ManagedLaunchInput, ManagedLaunchResult,
+    CombinedUsage, DatabaseHealth, DatabaseSummary, ManagedLaunchInput, ManagedLaunchResult,
     PaginatedRequestRecords, ProviderProfileRecord, ProviderProfileUpsertInput, RequestFilterInput,
     RequestRecordDetail,
 };
@@ -145,6 +145,15 @@ pub fn claude_code_overview(app: &AppHandle) -> Result<ClaudeOverview, String> {
 pub fn combined_today_usage(app: &AppHandle) -> Result<CombinedTodayUsage, String> {
     let connection = open_connection(app)?;
     repository::get_combined_today_usage(&connection)
+}
+
+pub fn combined_usage_for_range(
+    app: &AppHandle,
+    start_date: String,
+    end_date: String,
+) -> Result<CombinedUsage, String> {
+    let connection = open_connection(app)?;
+    repository::get_combined_usage_for_range(&connection, &start_date, &end_date)
 }
 
 pub fn list_filtered_requests(

@@ -10,7 +10,7 @@ mod tray;
 use app::commands::run_managed_launch;
 use app::commands::{database_healthcheck, get_bootstrap_info, initialize_local_database};
 use app::commands::{get_claude_code_overview, get_codex_overview};
-use app::commands::{get_combined_today_usage, get_database_summary};
+use app::commands::{get_combined_today_usage, get_combined_usage, get_database_summary};
 use app::commands::{get_compat_api_status, start_compat_api_server, stop_compat_api_server};
 use app::commands::{get_request_detail, list_filtered_requests};
 use app::commands::{list_provider_profiles, save_provider_profile, save_provider_profiles_batch};
@@ -43,6 +43,7 @@ pub fn run() {
             run_managed_launch,
             get_claude_code_overview,
             get_combined_today_usage,
+            get_combined_usage,
             list_filtered_requests,
             get_request_detail,
             start_compat_api_server,
