@@ -1,10 +1,15 @@
 .settings-shell {
   max-width: 1180px;
   margin: 0 auto;
-  padding: 24px 28px 40px;
+  padding: 24px 28px 0;
   width: 100%;
+  flex: 1;
   min-height: 0;
   overflow-y: auto;
+}
+
+.settings-shell > .settings-block:last-child {
+  margin-bottom: 28px;
 }
 
 .settings-block {
