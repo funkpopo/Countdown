@@ -38,6 +38,7 @@ struct AssistantMessage {
     started_at: Option<String>,
     timestamp: String,
     model: Option<String>,
+    request_type: RequestType,
     usage: Option<MessageUsage>,
     content_summary: Option<String>,
     has_tool_use: bool,
@@ -270,6 +271,7 @@ fn parse_project_jsonl(path: &Path) -> Result<ParsedProjectFile, String> {
                     .and_then(|m| m.get("content"))
                     .map(|c| content_has_tool_use(c))
                     .unwrap_or(false);
+                let request_type = classify_claude_code_record_type(&envelope);
 
                 if let Some(ts) = timestamp.clone() {
                     let started_at = last_response_trigger_timestamps
@@ -281,6 +283,7 @@ fn parse_project_jsonl(path: &Path) -> Result<ParsedProjectFile, String> {
                         started_at,
                         timestamp: ts,
                         model,
+                        request_type,
                         usage,
                         content_summary,
                         has_tool_use,
@@ -401,6 +404,57 @@ fn content_has_tool_use(content: &Value) -> bool {
     }
 }
 
+fn classify_claude_code_record_type(envelope: &Value) -> RequestType {
+    if explicit_stream_flag(envelope).unwrap_or(false) {
+        return RequestType::Stream;
+    }
+
+    let record_type = envelope.get("type").and_then(Value::as_str);
+    let message_type = envelope
+        .get("message")
+        .and_then(|message| message.get("type"))
+        .and_then(Value::as_str);
+
+    if matches!(
+        record_type.or(message_type),
+        Some("content_block_delta")
+            | Some("message_delta")
+            | Some("message_start")
+            | Some("message_stop")
+            | Some("input_json_delta")
+            | Some("ping")
+    ) {
+        return RequestType::Stream;
+    }
+
+    if record_type == Some("assistant") {
+        return RequestType::Sync;
+    }
+
+    RequestType::Unknown
+}
+
+fn explicit_stream_flag(value: &Value) -> Option<bool> {
+    const PATHS: [&str; 8] = [
+        "/is_stream",
+        "/isStream",
+        "/stream",
+        "/request/stream",
+        "/request/is_stream",
+        "/request/isStream",
+        "/message/stream",
+        "/message/is_stream",
+    ];
+
+    for path in PATHS {
+        if let Some(flag) = value.pointer(path).and_then(Value::as_bool) {
+            return Some(flag);
+        }
+    }
+
+    None
+}
+
 fn infer_elapsed_ms(started_at: Option<&str>, finished_at: &str) -> Option<i64> {
     let started_at = started_at?;
     let start = DateTime::parse_from_rfc3339(started_at).ok()?;
@@ -426,7 +480,7 @@ fn build_request_record(
         .started_at
         .clone()
         .unwrap_or_else(|| msg.timestamp.clone());
-    let request_type = RequestType::Stream;
+    let request_type = msg.request_type;
 
     let request_summary_json = json!({
         "sessionId": state.session_id,
@@ -434,7 +488,7 @@ fn build_request_record(
         "cwd": state.cwd,
         "hasToolUse": msg.has_tool_use,
         "requestType": request_type.as_str(),
-        "streamSource": "assumed_streamed_claude_code_passive_ingest",
+        "typeSource": "claude_code_jsonl_record",
         "ttftSource": "unavailable_passive_jsonl",
         "durationSource": if inferred_duration_ms.is_some() { "inferred_from_jsonl_timestamps" } else { "unavailable" },
     })
@@ -590,9 +644,10 @@ fn load_session_meta_overrides(sessions_dir: &Path) -> HashMap<String, SessionMe
 #[cfg(test)]
 mod tests {
     use super::{
-        build_request_record, parse_project_jsonl, summarize_content, truncate_utf8,
-        AssistantMessage, MessageUsage, SessionState,
+        build_request_record, classify_claude_code_record_type, parse_project_jsonl,
+        summarize_content, truncate_utf8, AssistantMessage, MessageUsage, SessionState,
     };
+    use crate::models::RequestType;
     use serde_json::json;
     use std::fs;
     use std::path::PathBuf;
@@ -683,6 +738,7 @@ mod tests {
             started_at: Some("2026-05-18T08:00:00.000Z".to_string()),
             timestamp: "2026-05-18T08:00:05.000Z".to_string(),
             model: Some("claude-sonnet-4-20250514".to_string()),
+            request_type: RequestType::Sync,
             usage: Some(MessageUsage {
                 input_tokens: 500,
                 cache_read_input_tokens: 100,
@@ -697,7 +753,7 @@ mod tests {
 
         assert_eq!(record.ttft_ms, None);
         assert_eq!(record.duration_ms, Some(5000));
-        assert!(record.is_stream);
+        assert!(!record.is_stream);
         assert_eq!(record.started_at, "2026-05-18T08:00:00.000Z");
         assert_eq!(
             record.finished_at.as_deref(),
@@ -706,7 +762,7 @@ mod tests {
     }
 
     #[test]
-    fn passive_records_are_streaming_independent_of_tool_or_cache_usage() {
+    fn passive_records_keep_type_independent_of_tool_or_cache_usage() {
         let state = SessionState {
             session_id: "claude-session-1".to_string(),
             ..SessionState::default()
@@ -715,6 +771,7 @@ mod tests {
             started_at: Some("2026-05-18T08:00:00.000Z".to_string()),
             timestamp: "2026-05-18T08:00:05.000Z".to_string(),
             model: Some("claude-sonnet-4-20250514".to_string()),
+            request_type: RequestType::Sync,
             usage: Some(MessageUsage {
                 input_tokens: 500,
                 cache_read_input_tokens: 100,
@@ -727,8 +784,62 @@ mod tests {
 
         let record = build_request_record("claude-session-1", &state, &message, "source.jsonl");
 
-        assert!(record.is_stream);
+        assert!(!record.is_stream);
         assert_eq!(record.cached_input_tokens, 150);
+    }
+
+    #[test]
+    fn claude_code_assistant_messages_default_to_sync_when_no_stream_signal_exists() {
+        let file_path = unique_test_path("claude-sync");
+        let content = [
+            r#"{"type":"user","timestamp":"2026-05-18T08:00:00.000Z","sessionId":"claude-session-1"}"#,
+            r#"{"type":"assistant","timestamp":"2026-05-18T08:00:05.000Z","sessionId":"claude-session-1","message":{"model":"claude-sonnet-4-20250514","role":"assistant","content":"Done.","usage":{"input_tokens":1,"output_tokens":2}}}"#,
+        ]
+        .join("\n");
+
+        fs::write(&file_path, content).expect("test file must be written");
+
+        let parsed = parse_project_jsonl(&file_path).expect("parsing must succeed");
+
+        fs::remove_file(&file_path).ok();
+
+        let state = parsed
+            .sessions
+            .get("claude-session-1")
+            .expect("session must exist");
+        let message = state
+            .assistant_messages
+            .first()
+            .expect("assistant message must exist");
+        assert_eq!(message.request_type, RequestType::Sync);
+
+        let record = build_request_record("claude-session-1", state, message, "source.jsonl");
+        assert!(!record.is_stream);
+        let summary: serde_json::Value = serde_json::from_str(
+            record
+                .request_summary_json
+                .as_deref()
+                .expect("request summary must exist"),
+        )
+        .expect("request summary must be valid json");
+        assert_eq!(summary["requestType"], "sync");
+        assert_eq!(summary["typeSource"], "claude_code_jsonl_record");
+    }
+
+    #[test]
+    fn claude_code_explicit_stream_flags_are_respected() {
+        let envelope = json!({
+            "type": "assistant",
+            "stream": true,
+            "message": {
+                "type": "message_delta"
+            }
+        });
+
+        assert_eq!(
+            classify_claude_code_record_type(&envelope),
+            RequestType::Stream
+        );
     }
 
     #[test]
