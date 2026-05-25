@@ -427,7 +427,19 @@ function formatDuration(value: number | null | undefined, t: (k: string) => stri
 
 function formatDate(value: string | null | undefined) {
   if (!value) return "N/A";
-  return value;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+
+  return new Intl.DateTimeFormat(undefined, {
+    timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).format(date);
 }
 
 function App() {

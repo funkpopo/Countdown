@@ -1,7 +1,7 @@
 .requests-page {
   max-width: 1240px;
   margin: 0 auto;
-  padding: 28px 28px 0;
+  padding: 20px 24px 0;
   width: 100%;
   flex: 1;
   min-height: 0;
@@ -15,24 +15,26 @@
   flex-shrink: 0;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 20px;
+  margin-bottom: 14px;
+  gap: 12px;
+  min-width: 0;
 }
 
 .requests-header h1 {
   margin: 0;
-  font-size: 1.5rem;
+  font-size: 1.25rem;
   font-weight: 700;
-  letter-spacing: -0.03em;
+  letter-spacing: 0;
   line-height: 1;
 }
 
 .filters-panel {
   display: flex;
   flex-shrink: 0;
-  gap: 12px;
+  gap: 10px;
   flex-wrap: wrap;
-  margin-bottom: 16px;
-  padding: 16px;
+  margin-bottom: 12px;
+  padding: 12px;
   border: 1px solid hsl(var(--border));
   border-radius: var(--radius);
   background: hsl(var(--card));
@@ -41,7 +43,7 @@
 .filter-group {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 5px;
   flex: 1;
   min-width: 180px;
 }
@@ -75,11 +77,11 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 18px;
+  padding: 14px;
   border: 1px solid hsl(var(--border));
   border-radius: var(--radius);
   background: hsl(var(--card));
-  margin-bottom: 28px;
+  margin-bottom: 16px;
 }
 
 .requests-table-panel .table-container {
@@ -134,14 +136,16 @@
   justify-content: center;
   align-items: center;
   gap: 12px;
-  margin-top: 16px;
-  padding-top: 14px;
+  margin-top: 12px;
+  padding-top: 12px;
   border-top: 1px solid hsl(var(--border) / 0.5);
+  flex-wrap: wrap;
 }
 
 .pagination-info {
   color: hsl(var(--muted));
   font-size: 0.875rem;
+  text-align: center;
 }
 
 .drawer-overlay {
@@ -320,7 +324,7 @@
 
 @media (max-width: 1024px) {
   .requests-page {
-    padding: 20px 16px 0;
+    padding: 16px 14px 0;
   }
 
   .detail-grid {
@@ -330,5 +334,58 @@
   .drawer {
     max-width: 100vw;
     width: 100%;
+  }
+
+  .requests-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .requests-header button {
+    align-self: flex-start;
+  }
+
+  .filters-panel {
+    padding: 10px;
+  }
+
+  .requests-table-panel {
+    padding: 12px;
+  }
+
+  .pagination {
+    justify-content: space-between;
+  }
+
+  .pagination-info {
+    width: 100%;
+    order: 3;
+  }
+}
+
+@media (max-width: 720px), (max-height: 720px) {
+  .requests-page {
+    padding: 12px 10px 0;
+  }
+
+  .requests-header h1 {
+    font-size: 1.125rem;
+  }
+
+  .filters-panel {
+    gap: 10px;
+  }
+
+  .filter-group {
+    min-width: 140px;
+  }
+
+  .requests-table-panel {
+    padding: 12px;
+    margin-bottom: 12px;
+  }
+
+  .pagination {
+    gap: 8px;
   }
 }

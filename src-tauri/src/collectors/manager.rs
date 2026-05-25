@@ -1,9 +1,11 @@
 use rusqlite::Connection;
 
 use crate::collectors::claude_code::{
-    default_claude_data_dir, ClaudeCodeCollector, CLAUDE_PROVIDER,
+    default_claude_data_dir, ClaudeCodeCollector, ClaudeImportResult, CLAUDE_PROVIDER,
 };
-use crate::collectors::codex::{default_codex_sessions_dir, CodexCollector, CODEX_PROVIDER};
+use crate::collectors::codex::{
+    default_codex_sessions_dir, CodexCollector, CodexImportResult, CODEX_PROVIDER,
+};
 use crate::collectors::managed_launch::run_managed_launch;
 use crate::db::repository;
 use crate::models::{
@@ -36,6 +38,81 @@ impl CollectorManager {
 
     pub fn sync_codex_sessions(connection: &mut Connection) -> Result<CodexSyncSummary, String> {
         let import = CodexCollector::import_default_sessions()?;
+        Self::persist_codex_import(connection, import)
+    }
+
+    pub fn sync_all_sessions(
+        connection: &mut Connection,
+    ) -> Result<(CodexSyncSummary, ClaudeCodeSyncSummary), String> {
+        let codex_handle = std::thread::spawn(CodexCollector::import_default_sessions);
+        let claude_handle = std::thread::spawn(ClaudeCodeCollector::import_default_sessions);
+
+        let codex_import = codex_handle
+            .join()
+            .map_err(|_| "Codex session import thread panicked".to_string())??;
+        let claude_import = claude_handle
+            .join()
+            .map_err(|_| "Claude Code session import thread panicked".to_string())??;
+
+        let transaction = connection
+            .unchecked_transaction()
+            .map_err(|error| error.to_string())?;
+
+        for session in &codex_import.sessions {
+            repository::upsert_session_record(&transaction, session)?;
+        }
+        for request in &codex_import.requests {
+            repository::upsert_request_record(&transaction, request)?;
+        }
+        repository::rebuild_daily_usage_for_provider(&transaction, CODEX_PROVIDER)?;
+
+        for session in &claude_import.sessions {
+            repository::upsert_session_record(&transaction, session)?;
+        }
+        for request in &claude_import.requests {
+            repository::upsert_request_record(&transaction, request)?;
+        }
+        repository::rebuild_daily_usage_for_provider(&transaction, CLAUDE_PROVIDER)?;
+
+        transaction.commit().map_err(|error| error.to_string())?;
+
+        let (codex_session_count, codex_request_count) =
+            repository::get_provider_counts(connection, CODEX_PROVIDER)?;
+        let codex_today_usage = repository::get_provider_today_usage(connection, CODEX_PROVIDER)?;
+        let (claude_session_count, claude_request_count) =
+            repository::get_provider_counts(connection, CLAUDE_PROVIDER)?;
+        let claude_today_usage = repository::get_provider_today_usage(connection, CLAUDE_PROVIDER)?;
+
+        Ok((
+            CodexSyncSummary {
+                data_dir: codex_import.data_dir.display().to_string(),
+                data_dir_exists: codex_import.data_dir_exists,
+                scanned_files: codex_import.scanned_files,
+                imported_sessions: codex_import.sessions.len() as i64,
+                imported_requests: codex_import.requests.len() as i64,
+                skipped_incomplete_turns: codex_import.skipped_incomplete_turns,
+                session_count: codex_session_count,
+                request_count: codex_request_count,
+                today_usage: codex_today_usage,
+            },
+            ClaudeCodeSyncSummary {
+                data_dir: claude_import.data_dir.display().to_string(),
+                data_dir_exists: claude_import.data_dir_exists,
+                scanned_files: claude_import.scanned_files,
+                imported_sessions: claude_import.sessions.len() as i64,
+                imported_requests: claude_import.requests.len() as i64,
+                skipped_incomplete_sessions: claude_import.skipped_incomplete_sessions,
+                session_count: claude_session_count,
+                request_count: claude_request_count,
+                today_usage: claude_today_usage,
+            },
+        ))
+    }
+
+    fn persist_codex_import(
+        connection: &mut Connection,
+        import: CodexImportResult,
+    ) -> Result<CodexSyncSummary, String> {
 
         let transaction = connection
             .unchecked_transaction()
@@ -91,6 +168,13 @@ impl CollectorManager {
         connection: &mut Connection,
     ) -> Result<ClaudeCodeSyncSummary, String> {
         let import = ClaudeCodeCollector::import_default_sessions()?;
+        Self::persist_claude_import(connection, import)
+    }
+
+    fn persist_claude_import(
+        connection: &mut Connection,
+        import: ClaudeImportResult,
+    ) -> Result<ClaudeCodeSyncSummary, String> {
 
         let transaction = connection
             .unchecked_transaction()
@@ -141,4 +225,5 @@ impl CollectorManager {
             recent_requests,
         })
     }
+
 }

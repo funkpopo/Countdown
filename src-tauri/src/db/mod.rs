@@ -142,6 +142,13 @@ pub fn sync_claude_code_sessions(app: &AppHandle) -> Result<ClaudeCodeSyncSummar
     CollectorManager::sync_claude_code_sessions(&mut connection)
 }
 
+pub fn sync_all_sessions(
+    app: &AppHandle,
+) -> Result<(CodexSyncSummary, ClaudeCodeSyncSummary), String> {
+    let mut connection = open_connection(app)?;
+    CollectorManager::sync_all_sessions(&mut connection)
+}
+
 pub fn claude_code_overview(app: &AppHandle) -> Result<ClaudeOverview, String> {
     let connection = open_connection(app)?;
     CollectorManager::get_claude_code_overview(&connection)

@@ -15,6 +15,13 @@ const CORE_TABLES: &[&str] = &[
     "schema_migrations",
 ];
 
+const REQUEST_RECORDS_RECENT_ORDER: &str = "
+    CASE WHEN COALESCE(rr.finished_at, rr.started_at) IS NULL THEN 1 ELSE 0 END ASC,
+    unixepoch(COALESCE(rr.finished_at, rr.started_at)) DESC,
+    COALESCE(rr.finished_at, rr.started_at) DESC,
+    rr.updated_at DESC
+";
+
 pub fn get_database_summary(connection: &Connection) -> Result<DatabaseSummary, String> {
     let schema_version = connection
         .query_row(
@@ -596,7 +603,11 @@ pub fn list_recent_request_records(
               ON rr.provider = s.provider
              AND rr.session_id = s.session_id
             WHERE rr.provider = ?1
-            ORDER BY rr.started_at DESC
+            ORDER BY
+              CASE WHEN COALESCE(rr.finished_at, rr.started_at) IS NULL THEN 1 ELSE 0 END ASC,
+              unixepoch(COALESCE(rr.finished_at, rr.started_at)) DESC,
+              COALESCE(rr.finished_at, rr.started_at) DESC,
+              rr.updated_at DESC
             LIMIT ?2
             ",
         )
@@ -759,7 +770,7 @@ pub fn list_filtered_request_records(
           ON rr.provider = s.provider
          AND rr.session_id = s.session_id
         {}
-        ORDER BY rr.started_at DESC
+        ORDER BY {REQUEST_RECORDS_RECENT_ORDER}
         LIMIT ?{} OFFSET ?{}
         ",
         where_sql,
