@@ -114,6 +114,11 @@ pub fn save_provider_profiles_batch(
     repository::upsert_provider_profiles(&mut connection, &inputs)
 }
 
+pub fn delete_provider_profile(app: &AppHandle, id: String) -> Result<(), String> {
+    let connection = open_connection(app)?;
+    repository::delete_provider_profile(&connection, &id)
+}
+
 pub fn sync_codex_sessions(app: &AppHandle) -> Result<CodexSyncSummary, String> {
     let mut connection = open_connection(app)?;
     CollectorManager::sync_codex_sessions(&mut connection)

@@ -3,6 +3,7 @@ import {
   listProviderProfiles,
   saveProviderProfile,
   saveProviderProfilesBatch,
+  deleteProviderProfile,
   startCompatApiServer,
   stopCompatApiServer,
   getCompatApiStatus,
@@ -229,6 +230,138 @@ function formatApiFormat(value: string): string {
   return "OpenAI";
 }
 
+function profileToEditorJson(profile: EditableProviderProfile): string {
+  const extra = parseExtraJson(profile.extraJson);
+  const prefixes = splitList(profile.modelPrefixesText);
+  const models = splitList(profile.modelsText);
+
+  delete extra.model_prefixes;
+  delete extra.modelPrefixes;
+  delete extra.models;
+
+  const obj: Record<string, unknown> = {
+    id: profile.id,
+    displayName: profile.displayName,
+    providerKey: profile.providerKey,
+    apiFormat: profile.apiFormat,
+  };
+
+  if (profile.baseUrl) obj.baseUrl = profile.baseUrl;
+  if (profile.apiKeyEnv) obj.apiKeyEnv = profile.apiKeyEnv;
+  obj.enabled = profile.enabled;
+  if (prefixes.length > 0) obj.modelPrefixes = prefixes;
+  if (models.length > 0) obj.models = models;
+  if (Object.keys(extra).length > 0) obj.extraJson = extra;
+
+  return JSON.stringify(obj, null, 2);
+}
+
+function editorJsonToProfile(json: string): EditableProviderProfile {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(json);
+  } catch (e) {
+    throw new Error(`Invalid JSON: ${(e as Error).message}`);
+  }
+
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("Profile must be a JSON object");
+  }
+
+  const record = parsed as Record<string, unknown>;
+  const displayName = normalizeNullableText(record.displayName ?? record.name) ?? "";
+  const providerKey = normalizeNullableText(record.providerKey) ?? "";
+
+  const extraSource = record.extraJson ?? record.extra_json;
+  const rawExtraJson =
+    typeof extraSource === "object" && extraSource !== null
+      ? JSON.stringify(extraSource)
+      : normalizeNullableText(extraSource as string | undefined);
+
+  const modelPrefixes = normalizeStringList(
+    record.modelPrefixes ?? record.model_prefixes ?? [],
+  );
+  const models = normalizeStringList(record.models ?? []);
+
+  return {
+    id: normalizeNullableText(record.id) ?? crypto.randomUUID(),
+    displayName,
+    providerKey,
+    baseUrl: normalizeNullableText(record.baseUrl ?? record.base_url ?? record.url),
+    apiFormat: normalizeApiFormat(record.apiFormat),
+    apiKeyEnv: normalizeNullableText(record.apiKeyEnv ?? record.api_key_env),
+    enabled: typeof record.enabled === "boolean" ? record.enabled : true,
+    extraJson: serializeRoutingExtra(rawExtraJson, modelPrefixes, models),
+    modelPrefixesText: modelPrefixes.join(", "),
+    modelsText: models.join(", "),
+  };
+}
+
+function TagInput({
+  values,
+  onChange,
+  placeholder,
+  addLabel,
+}: {
+  values: string;
+  onChange: (value: string) => void;
+  placeholder: string;
+  addLabel: string;
+}) {
+  const items = splitList(values);
+  const [inputValue, setInputValue] = useState("");
+
+  const addItem = () => {
+    const trimmed = inputValue.trim();
+    if (trimmed && !items.includes(trimmed)) {
+      onChange([...items, trimmed].join(", "));
+      setInputValue("");
+    }
+  };
+
+  const removeItem = (index: number) => {
+    onChange(items.filter((_, i) => i !== index).join(", "));
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      addItem();
+    }
+  };
+
+  return (
+    <div className="tag-input">
+      <div className="tag-list">
+        {items.map((item, i) => (
+          <span key={i} className="tag">
+            <span className="tag-text">{item}</span>
+            <button
+              type="button"
+              className="tag-remove"
+              onClick={() => removeItem(i)}
+            >
+              &times;
+            </button>
+          </span>
+        ))}
+      </div>
+      <div className="tag-input-row">
+        <input
+          type="text"
+          value={inputValue}
+          onChange={(e) => setInputValue(e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder={placeholder}
+        />
+        <button type="button" className="secondary" onClick={addItem} disabled={!inputValue.trim()}>
+          {addLabel}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function Settings() {
   const { t, language, setLanguage } = useLanguage();
   const [profiles, setProfiles] = useState<ProviderProfileRecord[]>([]);
@@ -239,6 +372,8 @@ function Settings() {
   const [success, setSuccess] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const [editingProfile, setEditingProfile] = useState<EditableProviderProfile | null>(null);
+  const [editMode, setEditMode] = useState<"form" | "json">("form");
+  const [jsonEditorText, setJsonEditorText] = useState("");
   const enabledProfiles = profiles.filter((profile) => profile.enabled);
   const openAiProfiles = profiles.filter((profile) => profile.apiFormat === "openai" || profile.apiFormat === "custom");
   const anthropicProfiles = profiles.filter((profile) => profile.apiFormat === "anthropic");
@@ -307,6 +442,7 @@ function Settings() {
         setSuccess(null);
         await saveProviderProfile(input);
         setEditingProfile(null);
+        setEditMode("form");
         refresh();
         setSuccess(t("settings.saved", input.displayName));
       } catch (saveError) {
@@ -330,6 +466,7 @@ function Settings() {
         const saved = await saveProviderProfilesBatch(inputs);
         setBatchInput("");
         setEditingProfile(null);
+        setEditMode("form");
         refresh();
         setSuccess(t("settings.imported", String(saved.length)));
       } catch (importError) {
@@ -340,8 +477,91 @@ function Settings() {
     });
   };
 
+  const handleJsonSave = () => {
+    try {
+      const parsed = editorJsonToProfile(jsonEditorText);
+      handleSaveProfile({
+        id: parsed.id,
+        providerKey: parsed.providerKey,
+        displayName: parsed.displayName,
+        baseUrl: parsed.baseUrl,
+        apiFormat: parsed.apiFormat,
+        apiKeyEnv: parsed.apiKeyEnv,
+        enabled: parsed.enabled,
+        extraJson: parsed.extraJson,
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Invalid JSON input");
+    }
+  };
+
+  const handleDeleteProfile = async (id: string, displayName: string) => {
+    if (!window.confirm(t("settings.deleteConfirm", displayName))) {
+      return;
+    }
+    startTransition(async () => {
+      try {
+        setError(null);
+        setSuccess(null);
+        await deleteProviderProfile(id);
+        setEditingProfile(null);
+        setEditMode("form");
+        refresh();
+        setSuccess(t("settings.deleted", displayName));
+      } catch (deleteError) {
+        setError(
+          deleteError instanceof Error ? deleteError.message : t("error.deleteProfile"),
+        );
+      }
+    });
+  };
+
   const handleLanguageChange = (lang: Language) => {
     setLanguage(lang);
+  };
+
+  const handleExportJson = () => {
+    const data = profiles.map((p) => {
+      const prefixes = readModelPrefixes(p.extraJson);
+      const models = readExactModels(p.extraJson);
+      const extra = parseExtraJson(p.extraJson);
+      delete extra.model_prefixes;
+      delete extra.modelPrefixes;
+      delete extra.models;
+
+      const obj: Record<string, unknown> = {
+        displayName: p.displayName,
+        providerKey: p.providerKey,
+        apiFormat: p.apiFormat,
+      };
+      if (p.baseUrl) obj.baseUrl = p.baseUrl;
+      if (p.apiKeyEnv) obj.apiKeyEnv = p.apiKeyEnv;
+      obj.enabled = p.enabled;
+      if (prefixes.length > 0) obj.modelPrefixes = prefixes;
+      if (models.length > 0) obj.models = models;
+      if (Object.keys(extra).length > 0) obj.extraJson = extra;
+      return obj;
+    });
+
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "provider-profiles.json";
+    a.click();
+    URL.revokeObjectURL(url);
+    setSuccess(t("settings.exported"));
+  };
+
+  const handleImportFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      setBatchInput(reader.result as string);
+    };
+    reader.readAsText(file);
+    e.target.value = "";
   };
 
   return (
@@ -422,17 +642,26 @@ function Settings() {
         <div className="section-header">
           <h2>{t("settings.accountPool")}</h2>
           <div className="settings-actions">
-            <button type="button" onClick={() => setEditingProfile(createEmptyProfile())}>
+            <button type="button" onClick={() => { setEditingProfile(createEmptyProfile()); setEditMode("form"); }}>
               {t("settings.new")}
+            </button>
+            <label className="import-file-label">
+              <input type="file" accept=".json,application/json" onChange={handleImportFile} hidden />
+              {t("settings.importFile")}
+            </label>
+            <button type="button" className="secondary" onClick={handleExportJson} disabled={profiles.length === 0}>
+              {t("settings.exportJson")}
             </button>
           </div>
         </div>
 
-        <div className="batch-import">
-          <textarea
-            value={batchInput}
-            onChange={(e) => setBatchInput(e.target.value)}
-            placeholder={`[
+        <details className="batch-import">
+          <summary className="batch-import-summary">{t("settings.batchImport")}</summary>
+          <div className="batch-import-body">
+            <textarea
+              value={batchInput}
+              onChange={(e) => setBatchInput(e.target.value)}
+              placeholder={`[
   {
     "displayName": "DeepSeek",
     "providerKey": "deepseek",
@@ -442,21 +671,93 @@ function Settings() {
     "modelPrefixes": ["deepseek-", "claude-"]
   }
 ]`}
-          />
-          <div className="settings-actions">
-            <button type="button" onClick={handleBatchImport} disabled={isPending}>
-              {t("settings.importBatch")}
-            </button>
+            />
+            <div className="settings-actions">
+              <button type="button" onClick={handleBatchImport} disabled={isPending || !batchInput.trim()}>
+                {t("settings.importBatch")}
+              </button>
+            </div>
           </div>
-        </div>
+        </details>
 
         {editingProfile ? (
-          <ProfileForm
-            profile={editingProfile}
-            onSave={handleSaveProfile}
-            onCancel={() => setEditingProfile(null)}
-            t={t}
-          />
+          <div className="editor-panel">
+            <div className="editor-tabs">
+              <button
+                type="button"
+                className={`editor-tab${editMode === "form" ? " active" : ""}`}
+                onClick={() => {
+                  if (editMode === "json") {
+                    try {
+                      const parsed = editorJsonToProfile(jsonEditorText);
+                      setEditingProfile(parsed);
+                      setEditMode("form");
+                    } catch (e) {
+                      setError(e instanceof Error ? e.message : "Invalid JSON input");
+                    }
+                  }
+                }}
+              >
+                {t("settings.formMode")}
+              </button>
+              <button
+                type="button"
+                className={`editor-tab${editMode === "json" ? " active" : ""}`}
+                onClick={() => {
+                  if (editMode === "form") {
+                    setJsonEditorText(profileToEditorJson(editingProfile));
+                    setEditMode("json");
+                  }
+                }}
+              >
+                {t("settings.jsonMode")}
+              </button>
+            </div>
+            {editMode === "form" ? (
+              <ProfileForm
+                key={editingProfile.id}
+                profile={editingProfile}
+                onSave={handleSaveProfile}
+                onDelete={
+                  editingProfile.displayName.trim()
+                    ? (id) => handleDeleteProfile(id, editingProfile.displayName)
+                    : undefined
+                }
+                onCancel={() => { setEditingProfile(null); setEditMode("form"); }}
+                t={t}
+              />
+            ) : (
+              <div className="json-editor">
+                <textarea
+                  className="json-editor-textarea"
+                  value={jsonEditorText}
+                  onChange={(e) => setJsonEditorText(e.target.value)}
+                  spellCheck={false}
+                />
+                <div className="settings-actions json-editor-actions">
+                  <button type="button" onClick={handleJsonSave}>
+                    {t("settings.form.save")}
+                  </button>
+                  {editingProfile.displayName.trim() ? (
+                    <button
+                      type="button"
+                      className="danger"
+                      onClick={() => handleDeleteProfile(editingProfile.id, editingProfile.displayName)}
+                    >
+                      {t("settings.delete")}
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={() => { setEditingProfile(null); setEditMode("form"); }}
+                  >
+                    {t("settings.form.cancel")}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         ) : null}
 
         <div className="profiles-table-shell">
@@ -469,7 +770,7 @@ function Settings() {
                 <th>{t("settings.table.baseUrl")}</th>
                 <th>{t("settings.table.keyEnv")}</th>
                 <th>{t("settings.table.status")}</th>
-                <th />
+                <th>{t("settings.table.actions")}</th>
               </tr>
             </thead>
             <tbody>
@@ -491,13 +792,22 @@ function Settings() {
                     </span>
                   </td>
                   <td className="actions-cell">
-                    <button
-                      type="button"
-                      className="secondary"
-                      onClick={() => setEditingProfile(createEditableProfile(profile))}
-                    >
-                      {t("settings.edit")}
-                    </button>
+                    <div className="row-actions">
+                      <button
+                        type="button"
+                        className="secondary"
+                        onClick={() => { setEditingProfile(createEditableProfile(profile)); setEditMode("form"); }}
+                      >
+                        {t("settings.edit")}
+                      </button>
+                      <button
+                        type="button"
+                        className="danger"
+                        onClick={() => handleDeleteProfile(profile.id, profile.displayName)}
+                      >
+                        {t("settings.delete")}
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -513,11 +823,13 @@ function Settings() {
 function ProfileForm({
   profile,
   onSave,
+  onDelete,
   onCancel,
   t,
 }: {
   profile: EditableProviderProfile;
   onSave: (input: ProviderProfileUpsertInput) => void;
+  onDelete?: (id: string) => void;
   onCancel: () => void;
   t: (key: string, ...args: string[]) => string;
 }) {
@@ -556,12 +868,13 @@ function ProfileForm({
         </div>
 
         <div className="settings-group">
-          <label htmlFor="providerKey">{t("settings.form.key")}</label>
+          <label htmlFor="providerKey">{t("settings.form.providerId")}</label>
           <input
             id="providerKey"
             type="text"
             value={form.providerKey}
             onChange={(e) => setForm({ ...form, providerKey: e.target.value })}
+            placeholder={t("settings.placeholder.providerId")}
             required
           />
         </div>
@@ -580,7 +893,7 @@ function ProfileForm({
         </div>
 
         <div className="settings-group">
-          <label htmlFor="apiKeyEnv">{t("settings.form.keyEnv")}</label>
+          <label htmlFor="apiKeyEnv">{t("settings.form.apiKeyEnv")}</label>
           <input
             id="apiKeyEnv"
             type="text"
@@ -602,24 +915,22 @@ function ProfileForm({
         </div>
 
         <div className="settings-group full-width">
-          <label htmlFor="modelPrefixes">{t("settings.form.routePrefixes")}</label>
-          <input
-            id="modelPrefixes"
-            type="text"
-            value={form.modelPrefixesText}
-            onChange={(e) => setForm({ ...form, modelPrefixesText: e.target.value })}
+          <label>{t("settings.form.routePrefixes")}</label>
+          <TagInput
+            values={form.modelPrefixesText}
+            onChange={(v) => setForm({ ...form, modelPrefixesText: v })}
             placeholder={t("settings.placeholder.routePrefixes")}
+            addLabel={t("settings.form.addPrefix")}
           />
         </div>
 
         <div className="settings-group full-width">
-          <label htmlFor="models">{t("settings.form.exactModels")}</label>
-          <input
-            id="models"
-            type="text"
-            value={form.modelsText}
-            onChange={(e) => setForm({ ...form, modelsText: e.target.value })}
+          <label>{t("settings.form.exactModels")}</label>
+          <TagInput
+            values={form.modelsText}
+            onChange={(v) => setForm({ ...form, modelsText: v })}
             placeholder={t("settings.placeholder.exactModels")}
+            addLabel={t("settings.form.addModel")}
           />
         </div>
       </div>
@@ -633,8 +944,13 @@ function ProfileForm({
         {t("settings.form.enabled")}
       </label>
 
-      <div className="settings-actions">
+      <div className="settings-actions profile-form-actions">
         <button type="submit">{t("settings.form.save")}</button>
+        {onDelete ? (
+          <button type="button" className="danger" onClick={() => onDelete(form.id)}>
+            {t("settings.delete")}
+          </button>
+        ) : null}
         <button type="button" className="secondary" onClick={onCancel}>
           {t("settings.form.cancel")}
         </button>

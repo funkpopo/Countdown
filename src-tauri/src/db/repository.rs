@@ -168,6 +168,13 @@ pub fn upsert_provider_profile(
     get_provider_profile_by_id(connection, &target_id)
 }
 
+pub fn delete_provider_profile(connection: &Connection, id: &str) -> Result<(), String> {
+    connection
+        .execute("DELETE FROM provider_profiles WHERE id = ?1", [id])
+        .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
 pub fn upsert_provider_profiles(
     connection: &mut Connection,
     inputs: &[ProviderProfileUpsertInput],

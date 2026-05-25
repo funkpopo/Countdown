@@ -13,7 +13,7 @@ use app::commands::{get_claude_code_overview, get_codex_overview};
 use app::commands::{get_combined_today_usage, get_combined_usage, get_database_summary};
 use app::commands::{get_compat_api_status, start_compat_api_server, stop_compat_api_server};
 use app::commands::{get_request_detail, list_filtered_requests};
-use app::commands::{list_provider_profiles, save_provider_profile, save_provider_profiles_batch};
+use app::commands::{delete_provider_profile, list_provider_profiles, save_provider_profile, save_provider_profiles_batch};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -39,6 +39,7 @@ pub fn run() {
             list_provider_profiles,
             save_provider_profile,
             save_provider_profiles_batch,
+            delete_provider_profile,
             get_codex_overview,
             run_managed_launch,
             get_claude_code_overview,

@@ -77,6 +77,12 @@ pub fn save_provider_profiles_batch(
 }
 
 #[tauri::command]
+pub fn delete_provider_profile(app: AppHandle, id: String) -> Result<(), String> {
+    db::initialize(&app)?;
+    db::delete_provider_profile(&app, id)
+}
+
+#[tauri::command]
 pub fn get_codex_overview(app: AppHandle) -> Result<CodexOverview, String> {
     db::initialize(&app)?;
     db::codex_overview(&app)

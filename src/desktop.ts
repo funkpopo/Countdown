@@ -241,6 +241,10 @@ export async function saveProviderProfilesBatch(
   return invoke<ProviderProfileRecord[]>("save_provider_profiles_batch", { inputs });
 }
 
+export async function deleteProviderProfile(id: string): Promise<void> {
+  return invoke<void>("delete_provider_profile", { id });
+}
+
 export async function getCodexOverview(): Promise<CodexOverview> {
   return invoke<CodexOverview>("get_codex_overview");
 }
