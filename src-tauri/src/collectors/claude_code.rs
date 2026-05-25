@@ -4,6 +4,7 @@ use std::fs::{self, File};
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 
+use chrono::DateTime;
 use serde_json::{json, Value};
 
 use crate::models::{RequestRecordUpsertRecord, SessionUpsertRecord};
@@ -34,6 +35,7 @@ struct MessageUsage {
 
 #[derive(Debug, Clone)]
 struct AssistantMessage {
+    started_at: Option<String>,
     timestamp: String,
     model: Option<String>,
     usage: Option<MessageUsage>,
@@ -125,12 +127,15 @@ impl ClaudeCodeCollector {
 
             for msg in &state.assistant_messages {
                 let usage = msg.usage.clone().unwrap_or_default();
+                let inferred_duration_ms =
+                    infer_elapsed_ms(msg.started_at.as_deref(), &msg.timestamp);
 
                 let request_summary_json = json!({
                     "sessionId": state.session_id,
                     "sourceFile": source_file,
                     "cwd": state.cwd,
                     "hasToolUse": msg.has_tool_use,
+                    "latencySource": if inferred_duration_ms.is_some() { "inferred_from_jsonl_timestamps" } else { "unavailable" },
                 })
                 .to_string();
 
@@ -156,10 +161,13 @@ impl ClaudeCodeCollector {
                     cached_input_tokens: usage.cache_read_input_tokens
                         + usage.cache_creation_input_tokens,
                     reasoning_tokens: 0,
-                    ttft_ms: None,
-                    duration_ms: None,
+                    ttft_ms: inferred_duration_ms,
+                    duration_ms: inferred_duration_ms,
                     status: "completed".to_string(),
-                    started_at: msg.timestamp.clone(),
+                    started_at: msg
+                        .started_at
+                        .clone()
+                        .unwrap_or_else(|| msg.timestamp.clone()),
                     finished_at: Some(msg.timestamp.clone()),
                     request_summary_json: Some(request_summary_json),
                     response_summary_json: Some(response_summary_json),
@@ -213,6 +221,7 @@ fn parse_project_jsonl(path: &Path) -> Result<ParsedProjectFile, String> {
     let reader = BufReader::new(file);
 
     let mut sessions: HashMap<String, SessionState> = HashMap::new();
+    let mut last_response_trigger_timestamps: HashMap<String, String> = HashMap::new();
     let file_stem = path
         .file_stem()
         .and_then(|s| s.to_str())
@@ -248,7 +257,7 @@ fn parse_project_jsonl(path: &Path) -> Result<ParsedProjectFile, String> {
                 let state = sessions
                     .entry(session_id.clone())
                     .or_insert_with(|| SessionState {
-                        session_id,
+                        session_id: session_id.clone(),
                         ..SessionState::default()
                     });
 
@@ -265,6 +274,10 @@ fn parse_project_jsonl(path: &Path) -> Result<ParsedProjectFile, String> {
                 if let Some(originator) = envelope.get("originator").and_then(Value::as_str) {
                     state.entrypoint = Some(originator.to_string());
                 }
+
+                if let Some(ts) = timestamp {
+                    last_response_trigger_timestamps.insert(session_id, ts);
+                }
             }
             Some("assistant") => {
                 let session_id = envelope
@@ -277,7 +290,7 @@ fn parse_project_jsonl(path: &Path) -> Result<ParsedProjectFile, String> {
                 let state = sessions
                     .entry(session_id.clone())
                     .or_insert_with(|| SessionState {
-                        session_id,
+                        session_id: session_id.clone(),
                         ..SessionState::default()
                     });
 
@@ -305,7 +318,13 @@ fn parse_project_jsonl(path: &Path) -> Result<ParsedProjectFile, String> {
                     .unwrap_or(false);
 
                 if let Some(ts) = timestamp.clone() {
+                    let started_at = last_response_trigger_timestamps
+                        .get(&session_id)
+                        .cloned()
+                        .or_else(|| state.first_timestamp.clone());
+
                     state.assistant_messages.push(AssistantMessage {
+                        started_at,
                         timestamp: ts,
                         model,
                         usage,
@@ -322,10 +341,12 @@ fn parse_project_jsonl(path: &Path) -> Result<ParsedProjectFile, String> {
                     .map(str::to_owned)
                     .unwrap_or_else(|| file_stem.clone());
 
-                let state = sessions.entry(session_id).or_insert_with(|| SessionState {
-                    session_id: file_stem.clone(),
-                    ..SessionState::default()
-                });
+                let state = sessions
+                    .entry(session_id.clone())
+                    .or_insert_with(|| SessionState {
+                        session_id: session_id.clone(),
+                        ..SessionState::default()
+                    });
 
                 if let Some(duration_ms) = envelope
                     .get("durationMs")
@@ -333,6 +354,10 @@ fn parse_project_jsonl(path: &Path) -> Result<ParsedProjectFile, String> {
                     .and_then(Value::as_i64)
                 {
                     state.tool_durations.push(duration_ms);
+                }
+
+                if let Some(ts) = timestamp {
+                    last_response_trigger_timestamps.insert(session_id, ts);
                 }
             }
             _ => {}
@@ -419,6 +444,19 @@ fn content_has_tool_use(content: &Value) -> bool {
                 .is_some_and(|t| t == "tool_use")
         }),
         _ => false,
+    }
+}
+
+fn infer_elapsed_ms(started_at: Option<&str>, finished_at: &str) -> Option<i64> {
+    let started_at = started_at?;
+    let start = DateTime::parse_from_rfc3339(started_at).ok()?;
+    let finish = DateTime::parse_from_rfc3339(finished_at).ok()?;
+    let elapsed = finish.signed_duration_since(start).num_milliseconds();
+
+    if elapsed >= 0 {
+        Some(elapsed)
+    } else {
+        None
     }
 }
 
@@ -571,7 +609,15 @@ mod tests {
         assert_eq!(state.entrypoint.as_deref(), Some("claude_vscode"));
 
         let first_msg = &state.assistant_messages[0];
+        assert_eq!(
+            first_msg.started_at.as_deref(),
+            Some("2026-05-18T08:00:00.000Z")
+        );
         assert_eq!(first_msg.model.as_deref(), Some("claude-sonnet-4-20250514"));
+        assert_eq!(
+            super::infer_elapsed_ms(first_msg.started_at.as_deref(), &first_msg.timestamp),
+            Some(5000)
+        );
         let usage = first_msg.usage.as_ref().expect("usage must exist");
         assert_eq!(usage.input_tokens, 500);
         assert_eq!(usage.cache_read_input_tokens, 100);
@@ -580,6 +626,10 @@ mod tests {
         assert!(!first_msg.has_tool_use);
 
         let second_msg = &state.assistant_messages[1];
+        assert_eq!(
+            second_msg.started_at.as_deref(),
+            Some("2026-05-18T08:00:00.000Z")
+        );
         assert!(second_msg.has_tool_use);
         assert_eq!(state.tool_durations.len(), 1);
         assert_eq!(state.tool_durations[0], 45);

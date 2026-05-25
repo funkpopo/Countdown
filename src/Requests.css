@@ -155,12 +155,14 @@
   z-index: 1000;
   display: flex;
   justify-content: flex-end;
+  overflow: hidden;
 }
 
 .drawer {
   width: 620px;
   max-width: 90vw;
-  height: 100vh;
+  height: 100dvh;
+  max-height: 100dvh;
   background: hsl(var(--card));
   border-left: 1px solid hsl(var(--border));
   box-shadow: -8px 0 24px hsl(0 0% 0% / 0.3);
@@ -208,7 +210,9 @@
   padding: 24px;
   flex: 1;
   min-height: 0;
+  max-height: calc(100dvh - 73px);
   overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .detail-section {
@@ -290,8 +294,8 @@
   border-radius: var(--radius);
   background: hsl(var(--background));
   border: 1px solid hsl(var(--border) / 0.5);
-  overflow-x: auto;
-  max-height: 400px;
+  overflow: auto;
+  max-height: min(400px, 55dvh);
   font-size: 0.8125rem;
   line-height: 1.5;
   margin: 0;
@@ -321,5 +325,10 @@
 
   .detail-grid {
     grid-template-columns: 1fr;
+  }
+
+  .drawer {
+    max-width: 100vw;
+    width: 100%;
   }
 }

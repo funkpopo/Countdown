@@ -541,7 +541,8 @@ pub fn get_combined_usage_for_range(
     start_date: &str,
     end_date: &str,
 ) -> Result<CombinedUsage, String> {
-    let (ci, co, ct, cr) = get_provider_agg_for_range(connection, "claude_code", start_date, end_date)?;
+    let (ci, co, ct, cr) =
+        get_provider_agg_for_range(connection, "claude_code", start_date, end_date)?;
     let (xi, xo, xt, xr) = get_provider_agg_for_range(connection, "codex", start_date, end_date)?;
 
     Ok(CombinedUsage {
