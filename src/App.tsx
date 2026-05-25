@@ -3,6 +3,8 @@ import { listen } from "@tauri-apps/api/event";
 import {
   getClaudeCodeOverview,
   getCodexOverview,
+  getCombinedUsageTotal,
+  getUsageHistogram,
   getCombinedUsage,
   getDatabaseSummary,
   initializeLocalDatabase,
@@ -13,6 +15,7 @@ import {
   type DailyUsageRecord,
   type DatabaseSummary,
   type RequestRecordListItem,
+  type UsageHistogram,
 } from "./desktop";
 import { useLanguage } from "./i18n";
 import "./App.css";
@@ -88,7 +91,8 @@ function ChevronLeftIcon() {
   );
 }
 
-type Period = "today" | "week" | "month";
+type Period = "today" | "week" | "month" | "total";
+type HistogramMetric = "tokens" | "requests";
 const OVERVIEW_RECENT_PAGE_SIZE = 10;
 
 function getDateRangeForPeriod(period: Period): { startDate: string; endDate: string } {
@@ -126,11 +130,14 @@ type OverviewPageProps = {
   codexOverview: CodexOverview | null;
   claudeOverview: ClaudeOverview | null;
   periodUsage: CombinedUsage | null;
+  histogram: UsageHistogram | null;
   period: Period;
+  histogramMetric: HistogramMetric;
   refreshToken: number;
   error: string | null;
   isPending: boolean;
   onPeriodChange: (period: Period) => void;
+  onHistogramMetricChange: (metric: HistogramMetric) => void;
   onRefresh: () => void;
   onInitializeDatabase: () => void;
 };
@@ -140,11 +147,14 @@ const OverviewPage = memo(function OverviewPage({
   codexOverview,
   claudeOverview,
   periodUsage,
+  histogram,
   period,
+  histogramMetric,
   refreshToken,
   error,
   isPending,
   onPeriodChange,
+  onHistogramMetricChange,
   onRefresh,
   onInitializeDatabase,
 }: OverviewPageProps) {
@@ -185,7 +195,7 @@ const OverviewPage = memo(function OverviewPage({
       {error ? <div className="notice error">{error}</div> : null}
 
       <div className="period-tabs">
-        {(["today", "week", "month"] as const).map((p) => (
+        {(["today", "week", "month", "total"] as const).map((p) => (
           <button
             key={p}
             className={"period-tab" + (period === p ? " active" : "")}
@@ -195,9 +205,11 @@ const OverviewPage = memo(function OverviewPage({
           </button>
         ))}
         <span className="period-range">
-          {periodUsage
-            ? `${periodUsage.startDate} ~ ${periodUsage.endDate}`
-            : "..."}
+          {period === "total"
+            ? t("tab.total.range")
+            : periodUsage
+              ? `${periodUsage.startDate} ~ ${periodUsage.endDate}`
+              : "..."}
         </span>
       </div>
 
@@ -236,6 +248,14 @@ const OverviewPage = memo(function OverviewPage({
           </div>
         </div>
 
+        {period !== "total" ? (
+          <UsageHistogramPanel
+            histogram={histogram}
+            metric={histogramMetric}
+            onMetricChange={onHistogramMetricChange}
+          />
+        ) : null}
+
         <RecentRequestsPanel
           provider="codex"
           title={t("recent.codex")}
@@ -272,6 +292,83 @@ const OverviewPage = memo(function OverviewPage({
     </div>
   );
 });
+
+const UsageHistogramPanel = memo(function UsageHistogramPanel({
+  histogram,
+  metric,
+  onMetricChange,
+}: {
+  histogram: UsageHistogram | null;
+  metric: HistogramMetric;
+  onMetricChange: (metric: HistogramMetric) => void;
+}) {
+  const { t } = useLanguage();
+  const formatNumber = useFormatNumber();
+  const buckets = histogram?.buckets ?? [];
+  const maxValue = Math.max(
+    1,
+    ...buckets.map((bucket) =>
+      metric === "tokens" ? bucket.combinedTotalTokens : bucket.combinedRequestCount,
+    ),
+  );
+  const handleWheel = useCallback((event: React.WheelEvent<HTMLDivElement>) => {
+    const element = event.currentTarget;
+    if (element.scrollWidth <= element.clientWidth) return;
+    if (Math.abs(event.deltaX) > Math.abs(event.deltaY)) return;
+
+    event.preventDefault();
+    element.scrollLeft += event.deltaY;
+  }, []);
+
+  return (
+    <div className="card wide histogram-card">
+      <div className="card-header">
+        <h2>{t("histogram.title")}</h2>
+        <div className="segmented-control">
+          {(["tokens", "requests"] as const).map((item) => (
+            <button
+              key={item}
+              type="button"
+              className={metric === item ? "active" : ""}
+              onClick={() => onMetricChange(item)}
+            >
+              {t(`histogram.${item}`)}
+            </button>
+          ))}
+        </div>
+      </div>
+      {buckets.length ? (
+        <div
+          className={"histogram" + (buckets.length <= 10 ? " fit" : "")}
+          onWheel={handleWheel}
+        >
+          {buckets.map((bucket) => {
+            const value =
+              metric === "tokens" ? bucket.combinedTotalTokens : bucket.combinedRequestCount;
+            return (
+              <div className="histogram-bar" key={bucket.bucket}>
+                <div className="histogram-track">
+                  <span style={{ height: `${Math.max(4, (value / maxValue) * 100)}%` }} />
+                </div>
+                <strong>{formatNumber(value)}</strong>
+                <small>{formatHistogramLabel(bucket.label, histogram?.granularity)}</small>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="recent-table-state">
+          <p className="empty">{t("histogram.empty")}</p>
+        </div>
+      )}
+    </div>
+  );
+});
+
+function formatHistogramLabel(label: string, granularity: string | undefined) {
+  if (granularity === "hour") return label.slice(11, 16);
+  return label.slice(5);
+}
 
 const RecentRequestsPanel = memo(function RecentRequestsPanel({
   provider,
@@ -376,10 +473,10 @@ const RecentRequestsPanel = memo(function RecentRequestsPanel({
                     </div>
                   </td>
                   <td>{request.isStream ? t("mode.stream") : t("mode.nonStream")}</td>
-                  <td>{request.inputTokens ?? "0"}</td>
-                  <td>{request.outputTokens ?? "0"}</td>
-                  <td>{request.cachedInputTokens ?? "0"}</td>
-                  <td>{request.reasoningTokens ?? "0"}</td>
+                  <td>{formatNumber(request.inputTokens)}</td>
+                  <td>{formatNumber(request.outputTokens)}</td>
+                  <td>{formatNumber(request.cachedInputTokens)}</td>
+                  <td>{formatNumber(request.reasoningTokens)}</td>
                   <td>{formatDuration(request.ttftMs, t)}</td>
                   <td>{formatDuration(request.durationMs, t)}</td>
                   <td>{request.status}</td>
@@ -452,7 +549,14 @@ function App() {
     today: null,
     week: null,
     month: null,
+    total: null,
   });
+  const [histograms, setHistograms] = useState<Record<"today" | "week" | "month", UsageHistogram | null>>({
+    today: null,
+    week: null,
+    month: null,
+  });
+  const [histogramMetric, setHistogramMetric] = useState<HistogramMetric>("tokens");
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const [currentPage, setCurrentPage] = useState<"overview" | "requests" | "settings">("overview");
@@ -462,11 +566,11 @@ function App() {
   const [overviewRefreshToken, setOverviewRefreshToken] = useState(0);
 
   const fetchAllPeriodUsage = async () => {
-    const periods: Period[] = ["today", "week", "month"];
+    const periods: Period[] = ["today", "week", "month", "total"];
     const results = await Promise.all(
       periods.map(async (p) => {
         try {
-          const usage = await getCombinedUsage(getDateRangeForPeriod(p));
+          const usage = p === "total" ? await getCombinedUsageTotal() : await getCombinedUsage(getDateRangeForPeriod(p));
           return [p, usage] as const;
         } catch {
           return [p, null] as const;
@@ -476,9 +580,27 @@ function App() {
     setPeriodUsage(Object.fromEntries(results) as Record<Period, CombinedUsage | null>);
   };
 
+  const fetchAllHistograms = async () => {
+    const periods: Array<"today" | "week" | "month"> = ["today", "week", "month"];
+    const results = await Promise.all(
+      periods.map(async (p) => {
+        try {
+          const histogram = await getUsageHistogram({
+            period: p,
+            granularity: p === "today" ? "hour" : "day",
+          });
+          return [p, histogram] as const;
+        } catch {
+          return [p, null] as const;
+        }
+      }),
+    );
+    setHistograms(Object.fromEntries(results) as Record<"today" | "week" | "month", UsageHistogram | null>);
+  };
+
   const fetchPeriodUsage = async (p: Period) => {
     try {
-      const usage = await getCombinedUsage(getDateRangeForPeriod(p));
+      const usage = p === "total" ? await getCombinedUsageTotal() : await getCombinedUsage(getDateRangeForPeriod(p));
       setPeriodUsage((prev) => ({ ...prev, [p]: usage }));
     } catch {
       // period fetch errors are non-critical
@@ -509,6 +631,7 @@ function App() {
   useEffect(() => {
     refresh();
     fetchAllPeriodUsage();
+    fetchAllHistograms();
   }, []);
 
   useEffect(() => {
@@ -520,6 +643,7 @@ function App() {
       listen("usage-sync-completed", () => {
         refresh();
         fetchAllPeriodUsage();
+        fetchAllHistograms();
       }),
       listen<{ error?: string }>("usage-sync-failed", (event) => {
         setError(event.payload?.error ?? t("error.syncFailed"));
@@ -553,6 +677,7 @@ function App() {
         await initializeLocalDatabase();
         refresh();
         fetchAllPeriodUsage();
+        fetchAllHistograms();
       } catch (initError) {
         setError(
           initError instanceof Error ? initError.message : t("error.initDb"),
@@ -609,11 +734,14 @@ function App() {
             codexOverview={codexOverview}
             claudeOverview={claudeOverview}
             periodUsage={periodUsage[period]}
+            histogram={period === "total" ? null : histograms[period]}
             period={period}
+            histogramMetric={histogramMetric}
             refreshToken={overviewRefreshToken}
             error={error}
             isPending={isPending}
             onPeriodChange={handlePeriodChange}
+            onHistogramMetricChange={setHistogramMetric}
             onRefresh={refresh}
             onInitializeDatabase={handleInitializeDatabase}
           />

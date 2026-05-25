@@ -128,6 +128,41 @@ pub struct CombinedUsage {
     pub last_refresh_at: String,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UsageHistogramInput {
+    pub period: String,
+    pub granularity: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UsageHistogramBucket {
+    pub bucket: String,
+    pub label: String,
+    pub claude_input_tokens: i64,
+    pub claude_output_tokens: i64,
+    pub claude_total_tokens: i64,
+    pub claude_request_count: i64,
+    pub codex_input_tokens: i64,
+    pub codex_output_tokens: i64,
+    pub codex_total_tokens: i64,
+    pub codex_request_count: i64,
+    pub combined_input_tokens: i64,
+    pub combined_output_tokens: i64,
+    pub combined_total_tokens: i64,
+    pub combined_request_count: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UsageHistogram {
+    pub period: String,
+    pub granularity: String,
+    pub buckets: Vec<UsageHistogramBucket>,
+    pub last_refresh_at: String,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DailyUsageRecord {

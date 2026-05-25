@@ -12,7 +12,7 @@ use crate::models::{
     ClaudeCodeSyncSummary, ClaudeOverview, CodexOverview, CodexSyncSummary, CombinedTodayUsage,
     CombinedUsage, DatabaseHealth, DatabaseSummary, ManagedLaunchInput, ManagedLaunchResult,
     PaginatedRequestRecords, ProviderProfileRecord, ProviderProfileUpsertInput, RequestFilterInput,
-    RequestRecordDetail,
+    RequestRecordDetail, UsageHistogram,
 };
 
 const DATABASE_FILE: &str = "countdown.db";
@@ -166,6 +166,20 @@ pub fn combined_usage_for_range(
 ) -> Result<CombinedUsage, String> {
     let connection = open_connection(app)?;
     repository::get_combined_usage_for_range(&connection, &start_date, &end_date)
+}
+
+pub fn combined_usage_total(app: &AppHandle) -> Result<CombinedUsage, String> {
+    let connection = open_connection(app)?;
+    repository::get_combined_usage_total(&connection)
+}
+
+pub fn usage_histogram(
+    app: &AppHandle,
+    period: String,
+    granularity: String,
+) -> Result<UsageHistogram, String> {
+    let connection = open_connection(app)?;
+    repository::get_usage_histogram(&connection, &period, &granularity)
 }
 
 pub fn list_filtered_requests(

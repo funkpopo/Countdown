@@ -738,6 +738,7 @@ async fn handle_messages(
     Json(req): Json<AnthropicMessagesRequest>,
 ) -> Response {
     let start_time = Instant::now();
+    let started_at = Utc::now().to_rfc3339();
     let request_id = Uuid::new_v4().to_string();
     let is_stream = req.stream.unwrap_or(false);
 
@@ -856,7 +857,7 @@ async fn handle_messages(
                     ttft_ms: None,
                     duration_ms: Some(duration_ms),
                     status: "success".to_string(),
-                    started_at: Utc::now().to_rfc3339(),
+                    started_at: started_at.clone(),
                     finished_at: Some(Utc::now().to_rfc3339()),
                     request_summary_json: Some(serde_json::to_string(&req).unwrap_or_default()),
                     response_summary_json: Some(serde_json::to_string(&body).unwrap_or_default()),
@@ -897,7 +898,7 @@ async fn handle_messages(
                     ttft_ms: None,
                     duration_ms: Some(duration_ms),
                     status: format!("error_{}", status.as_u16()),
-                    started_at: Utc::now().to_rfc3339(),
+                    started_at: started_at.clone(),
                     finished_at: Some(Utc::now().to_rfc3339()),
                     request_summary_json: Some(serde_json::to_string(&req).unwrap_or_default()),
                     response_summary_json: None,
@@ -938,7 +939,7 @@ async fn handle_messages(
                 ttft_ms: None,
                 duration_ms: Some(duration_ms),
                 status: "error_network".to_string(),
-                started_at: Utc::now().to_rfc3339(),
+                started_at: started_at.clone(),
                 finished_at: Some(Utc::now().to_rfc3339()),
                 request_summary_json: Some(serde_json::to_string(&req).unwrap_or_default()),
                 response_summary_json: None,
@@ -1289,6 +1290,7 @@ fn create_compat_sse_stream(
     request_summary_json: Option<String>,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
     let stream = stream! {
+        let started_at = Utc::now().to_rfc3339();
         let start_time = Instant::now();
         let mut ttft_ms: Option<i64> = None;
         let mut input_tokens = 0_i64;
@@ -1394,6 +1396,7 @@ fn create_compat_sse_stream(
             &status,
             request_summary_json,
             error_text,
+            started_at,
         );
     };
 
@@ -1707,7 +1710,14 @@ fn anthropic_stream_payload_has_visible_delta(value: &serde_json::Value) -> bool
 }
 
 fn stream_usage_tokens(value: &serde_json::Value) -> (i64, i64) {
-    let usage = value.get("usage").unwrap_or(&serde_json::Value::Null);
+    let usage = value
+        .get("usage")
+        .or_else(|| {
+            value
+                .get("message")
+                .and_then(|message| message.get("usage"))
+        })
+        .unwrap_or(&serde_json::Value::Null);
     let input = usage
         .get("prompt_tokens")
         .or_else(|| usage.get("input_tokens"))
@@ -1738,6 +1748,7 @@ fn record_stream_compat_request(
     status: &str,
     request_summary_json: Option<String>,
     error_text: Option<String>,
+    started_at: String,
 ) {
     let request_type = RequestType::Stream;
     let record = RequestRecordUpsertRecord {
@@ -1755,7 +1766,7 @@ fn record_stream_compat_request(
         ttft_ms,
         duration_ms: Some(duration_ms),
         status: status.to_string(),
-        started_at: Utc::now().to_rfc3339(),
+        started_at,
         finished_at: Some(Utc::now().to_rfc3339()),
         request_summary_json,
         response_summary_json: None,

@@ -202,6 +202,35 @@ export type CombinedUsage = {
   lastRefreshAt: string;
 };
 
+export type UsageHistogramInput = {
+  period: "today" | "week" | "month";
+  granularity: "hour" | "day";
+};
+
+export type UsageHistogramBucket = {
+  bucket: string;
+  label: string;
+  claudeInputTokens: number;
+  claudeOutputTokens: number;
+  claudeTotalTokens: number;
+  claudeRequestCount: number;
+  codexInputTokens: number;
+  codexOutputTokens: number;
+  codexTotalTokens: number;
+  codexRequestCount: number;
+  combinedInputTokens: number;
+  combinedOutputTokens: number;
+  combinedTotalTokens: number;
+  combinedRequestCount: number;
+};
+
+export type UsageHistogram = {
+  period: "today" | "week" | "month";
+  granularity: "hour" | "day";
+  buckets: UsageHistogramBucket[];
+  lastRefreshAt: string;
+};
+
 export type CompatApiStatus = {
   running: boolean;
   listenAddress: string;
@@ -259,6 +288,14 @@ export async function getCombinedTodayUsage(): Promise<CombinedTodayUsage> {
 
 export async function getCombinedUsage(range: DateRangeInput): Promise<CombinedUsage> {
   return invoke<CombinedUsage>("get_combined_usage", { range });
+}
+
+export async function getCombinedUsageTotal(): Promise<CombinedUsage> {
+  return invoke<CombinedUsage>("get_combined_usage_total");
+}
+
+export async function getUsageHistogram(input: UsageHistogramInput): Promise<UsageHistogram> {
+  return invoke<UsageHistogram>("get_usage_histogram", { input });
 }
 
 export async function listFilteredRequests(

@@ -4,7 +4,7 @@ use crate::models::{
     AppliedMigration, CombinedTodayUsage, CombinedUsage, DailyUsageRecord, DatabaseSummary,
     PaginatedRequestRecords, ProviderProfileRecord, ProviderProfileUpsertInput, RequestFilterInput,
     RequestRecordDetail, RequestRecordListItem, RequestRecordUpsertRecord, SessionUpsertRecord,
-    TableStat,
+    TableStat, UsageHistogram, UsageHistogramBucket,
 };
 
 const CORE_TABLES: &[&str] = &[
@@ -567,6 +567,173 @@ pub fn get_combined_usage_for_range(
         combined_output_tokens: co + xo,
         combined_total_tokens: ct + xt,
         combined_request_count: cr + xr,
+        last_refresh_at: chrono::Utc::now().to_rfc3339(),
+    })
+}
+
+fn get_provider_total_usage(
+    connection: &Connection,
+    provider: &str,
+) -> Result<(i64, i64, i64), String> {
+    connection
+        .query_row(
+            "
+            SELECT
+              COALESCE(SUM(input_tokens), 0),
+              COALESCE(SUM(output_tokens), 0),
+              COUNT(*)
+            FROM request_records
+            WHERE provider = ?1
+            ",
+            [provider],
+            |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, i64>(2)?,
+                ))
+            },
+        )
+        .map_err(|error| error.to_string())
+}
+
+pub fn get_combined_usage_total(connection: &Connection) -> Result<CombinedUsage, String> {
+    let (ci, co, cr) = get_provider_total_usage(connection, "claude_code")?;
+    let (xi, xo, xr) = get_provider_total_usage(connection, "codex")?;
+    let (start_date, end_date) = connection
+        .query_row(
+            "
+            SELECT
+              COALESCE(MIN(DATE(COALESCE(finished_at, started_at), 'localtime')), ''),
+              COALESCE(MAX(DATE(COALESCE(finished_at, started_at), 'localtime')), '')
+            FROM request_records
+            WHERE provider IN ('claude_code', 'codex')
+            ",
+            [],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+        )
+        .map_err(|error| error.to_string())?;
+
+    Ok(CombinedUsage {
+        start_date,
+        end_date,
+        claude_input_tokens: ci,
+        claude_output_tokens: co,
+        claude_total_tokens: ci + co,
+        claude_request_count: cr,
+        codex_input_tokens: xi,
+        codex_output_tokens: xo,
+        codex_total_tokens: xi + xo,
+        codex_request_count: xr,
+        combined_input_tokens: ci + xi,
+        combined_output_tokens: co + xo,
+        combined_total_tokens: ci + co + xi + xo,
+        combined_request_count: cr + xr,
+        last_refresh_at: chrono::Utc::now().to_rfc3339(),
+    })
+}
+
+pub fn get_usage_histogram(
+    connection: &Connection,
+    period: &str,
+    granularity: &str,
+) -> Result<UsageHistogram, String> {
+    let (bucket_seed, bucket_next, bucket_limit, bucket_expr, where_sql) = match (period, granularity)
+    {
+        ("today", "hour") => (
+            "strftime('%Y-%m-%d %H:00', DATE('now', 'localtime'))",
+            "strftime('%Y-%m-%d %H:00', datetime(bucket, '+1 hour'))",
+            "bucket < strftime('%Y-%m-%d %H:00', datetime(DATE('now', 'localtime'), '+23 hours'))",
+            "strftime('%Y-%m-%d %H:00', COALESCE(finished_at, started_at), 'localtime')",
+            "DATE(COALESCE(finished_at, started_at), 'localtime') = DATE('now', 'localtime')",
+        ),
+        ("week", "day") => (
+            "DATE('now', 'localtime', 'weekday 1', '-7 days')",
+            "DATE(bucket, '+1 day')",
+            "bucket < DATE('now', 'localtime')",
+            "DATE(COALESCE(finished_at, started_at), 'localtime')",
+            "DATE(COALESCE(finished_at, started_at), 'localtime') >= DATE('now', 'localtime', 'weekday 1', '-7 days') AND DATE(COALESCE(finished_at, started_at), 'localtime') <= DATE('now', 'localtime')",
+        ),
+        ("month", "day") => (
+            "DATE('now', 'localtime', 'start of month')",
+            "DATE(bucket, '+1 day')",
+            "bucket < DATE('now', 'localtime')",
+            "DATE(COALESCE(finished_at, started_at), 'localtime')",
+            "DATE(COALESCE(finished_at, started_at), 'localtime') >= DATE('now', 'localtime', 'start of month') AND DATE(COALESCE(finished_at, started_at), 'localtime') <= DATE('now', 'localtime')",
+        ),
+        _ => return Err("Unsupported histogram period or granularity".to_string()),
+    };
+
+    let sql = format!(
+        "
+        WITH RECURSIVE buckets(bucket) AS (
+          SELECT {bucket_seed}
+          UNION ALL
+          SELECT {bucket_next}
+          FROM buckets
+          WHERE {bucket_limit}
+        ),
+        usage AS (
+          SELECT
+            {bucket_expr} AS bucket,
+            provider,
+            input_tokens,
+            output_tokens
+          FROM request_records
+          WHERE provider IN ('claude_code', 'codex') AND {where_sql}
+        )
+        SELECT
+          buckets.bucket,
+          COALESCE(SUM(CASE WHEN usage.provider = 'claude_code' THEN usage.input_tokens ELSE 0 END), 0),
+          COALESCE(SUM(CASE WHEN usage.provider = 'claude_code' THEN usage.output_tokens ELSE 0 END), 0),
+          COALESCE(SUM(CASE WHEN usage.provider = 'claude_code' THEN 1 ELSE 0 END), 0),
+          COALESCE(SUM(CASE WHEN usage.provider = 'codex' THEN usage.input_tokens ELSE 0 END), 0),
+          COALESCE(SUM(CASE WHEN usage.provider = 'codex' THEN usage.output_tokens ELSE 0 END), 0),
+          COALESCE(SUM(CASE WHEN usage.provider = 'codex' THEN 1 ELSE 0 END), 0)
+        FROM buckets
+        LEFT JOIN usage ON usage.bucket = buckets.bucket
+        GROUP BY buckets.bucket
+        ORDER BY buckets.bucket ASC
+        "
+    );
+
+    let mut statement = connection
+        .prepare(&sql)
+        .map_err(|error| error.to_string())?;
+    let rows = statement
+        .query_map([], |row| {
+            let bucket: String = row.get(0)?;
+            let ci: i64 = row.get(1)?;
+            let co: i64 = row.get(2)?;
+            let cr: i64 = row.get(3)?;
+            let xi: i64 = row.get(4)?;
+            let xo: i64 = row.get(5)?;
+            let xr: i64 = row.get(6)?;
+            Ok(UsageHistogramBucket {
+                label: bucket.clone(),
+                bucket,
+                claude_input_tokens: ci,
+                claude_output_tokens: co,
+                claude_total_tokens: ci + co,
+                claude_request_count: cr,
+                codex_input_tokens: xi,
+                codex_output_tokens: xo,
+                codex_total_tokens: xi + xo,
+                codex_request_count: xr,
+                combined_input_tokens: ci + xi,
+                combined_output_tokens: co + xo,
+                combined_total_tokens: ci + co + xi + xo,
+                combined_request_count: cr + xr,
+            })
+        })
+        .map_err(|error| error.to_string())?;
+
+    Ok(UsageHistogram {
+        period: period.to_string(),
+        granularity: granularity.to_string(),
+        buckets: rows
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| error.to_string())?,
         last_refresh_at: chrono::Utc::now().to_rfc3339(),
     })
 }

@@ -14,7 +14,10 @@ use app::commands::{
     save_provider_profiles_batch,
 };
 use app::commands::{get_claude_code_overview, get_codex_overview};
-use app::commands::{get_combined_today_usage, get_combined_usage, get_database_summary};
+use app::commands::{
+    get_combined_today_usage, get_combined_usage, get_combined_usage_total, get_database_summary,
+    get_usage_histogram,
+};
 use app::commands::{get_compat_api_status, start_compat_api_server, stop_compat_api_server};
 use app::commands::{get_request_detail, list_filtered_requests};
 
@@ -51,6 +54,8 @@ pub fn run() {
             get_claude_code_overview,
             get_combined_today_usage,
             get_combined_usage,
+            get_combined_usage_total,
+            get_usage_histogram,
             list_filtered_requests,
             get_request_detail,
             start_compat_api_server,

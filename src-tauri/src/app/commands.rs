@@ -6,7 +6,8 @@ use crate::models::{
     BootstrapInfo, ClaudeOverview, CodexOverview, CombinedTodayUsage, CombinedUsage,
     CompatApiStatus, DatabaseHealth, DatabaseSummary, DateRangeInput, ManagedLaunchInput,
     ManagedLaunchResult, PaginatedRequestRecords, ProviderProfileRecord,
-    ProviderProfileUpsertInput, RequestFilterInput, RequestRecordDetail,
+    ProviderProfileUpsertInput, RequestFilterInput, RequestRecordDetail, UsageHistogram,
+    UsageHistogramInput,
 };
 
 #[tauri::command]
@@ -118,6 +119,21 @@ pub fn get_combined_today_usage(app: AppHandle) -> Result<CombinedTodayUsage, St
 pub fn get_combined_usage(app: AppHandle, range: DateRangeInput) -> Result<CombinedUsage, String> {
     db::initialize(&app)?;
     db::combined_usage_for_range(&app, range.start_date, range.end_date)
+}
+
+#[tauri::command]
+pub fn get_combined_usage_total(app: AppHandle) -> Result<CombinedUsage, String> {
+    db::initialize(&app)?;
+    db::combined_usage_total(&app)
+}
+
+#[tauri::command]
+pub fn get_usage_histogram(
+    app: AppHandle,
+    input: UsageHistogramInput,
+) -> Result<UsageHistogram, String> {
+    db::initialize(&app)?;
+    db::usage_histogram(&app, input.period, input.granularity)
 }
 
 #[tauri::command]

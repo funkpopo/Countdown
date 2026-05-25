@@ -422,6 +422,30 @@ label {
   word-break: break-all;
 }
 
+.segmented-control {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius);
+  background: hsl(var(--background));
+}
+
+.segmented-control button {
+  min-height: 28px;
+  padding: 4px 10px;
+  border: 0;
+  border-radius: calc(var(--radius) - 3px);
+  background: transparent;
+  color: hsl(var(--muted));
+  font-size: 0.8125rem;
+}
+
+.segmented-control button.active {
+  background: hsl(var(--accent));
+  color: hsl(var(--foreground));
+}
+
 /* ─── Grid ─── */
 
 .grid {
@@ -505,6 +529,68 @@ label {
   font-size: 1.0625rem;
   font-weight: 700;
   color: hsl(var(--foreground));
+  font-variant-numeric: tabular-nums;
+}
+
+.histogram-card {
+  min-height: 220px;
+}
+
+.histogram {
+  display: grid;
+  grid-auto-columns: 56px;
+  grid-auto-flow: column;
+  grid-template-columns: none;
+  gap: 8px;
+  align-items: end;
+  min-height: 170px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 6px;
+  overscroll-behavior-x: contain;
+}
+
+.histogram.fit {
+  grid-auto-columns: minmax(56px, 1fr);
+}
+
+.histogram-bar {
+  display: grid;
+  grid-template-rows: 1fr auto auto;
+  gap: 5px;
+  min-width: 0;
+  height: 170px;
+  text-align: center;
+}
+
+.histogram-track {
+  display: flex;
+  align-items: flex-end;
+  min-height: 112px;
+  border-radius: 6px;
+  background: hsl(var(--background));
+  overflow: hidden;
+}
+
+.histogram-track span {
+  display: block;
+  width: 100%;
+  border-radius: 6px 6px 0 0;
+  background: linear-gradient(180deg, hsl(var(--primary)), hsl(173 70% 44%));
+}
+
+.histogram-bar strong {
+  overflow: hidden;
+  color: hsl(var(--foreground));
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.histogram-bar small {
+  color: hsl(var(--muted));
+  font-size: 0.6875rem;
   font-variant-numeric: tabular-nums;
 }
 

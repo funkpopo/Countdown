@@ -24,6 +24,12 @@ export const translations: Record<Language, Translations> = {
     "tab.today": "Today",
     "tab.week": "This Week",
     "tab.month": "This Month",
+    "tab.total": "Total",
+    "tab.total.range": "All time",
+    "histogram.title": "Usage Histogram",
+    "histogram.tokens": "Tokens",
+    "histogram.requests": "Requests",
+    "histogram.empty": "No usage data in this period.",
 
     /* Codex card */
     "codex.title": "Codex",
@@ -234,6 +240,12 @@ export const translations: Record<Language, Translations> = {
     "tab.today": "今天",
     "tab.week": "本周",
     "tab.month": "本月",
+    "tab.total": "总计",
+    "tab.total.range": "所有时间",
+    "histogram.title": "用量直方图",
+    "histogram.tokens": "令牌",
+    "histogram.requests": "请求",
+    "histogram.empty": "当前周期暂无用量数据。",
 
     /* Codex card */
     "codex.title": "Codex",
