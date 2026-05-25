@@ -9,7 +9,8 @@ use uuid::Uuid;
 use crate::collectors::claude_code::CLAUDE_PROVIDER;
 use crate::collectors::codex::CODEX_PROVIDER;
 use crate::models::{
-    ManagedLaunchInput, ManagedLaunchResult, RequestRecordUpsertRecord, SessionUpsertRecord,
+    ManagedLaunchInput, ManagedLaunchResult, RequestRecordUpsertRecord, RequestType,
+    SessionUpsertRecord,
 };
 
 pub const MANAGED_SOURCE_MODE: &str = "managed_launch";
@@ -77,6 +78,7 @@ pub fn run_managed_launch(input: ManagedLaunchInput) -> Result<ManagedLaunchCapt
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
     let parsed = parse_managed_output(&provider, &stdout);
+    let request_type = classify_managed_request_type(&parsed);
     let status = if output.status.success() {
         "completed"
     } else {
@@ -112,7 +114,7 @@ pub fn run_managed_launch(input: ManagedLaunchInput) -> Result<ManagedLaunchCapt
         session_id: Some(session_id.clone()),
         request_id: Some(request_id.clone()),
         model: model.clone(),
-        is_stream: parsed.is_stream || parsed.ttft_ms.is_some(),
+        is_stream: request_type.is_stream(),
         input_tokens: parsed.input_tokens,
         output_tokens: parsed.output_tokens,
         cached_input_tokens: parsed.cached_input_tokens,
@@ -167,6 +169,14 @@ pub fn run_managed_launch(input: ManagedLaunchInput) -> Result<ManagedLaunchCapt
         session,
         request,
     })
+}
+
+fn classify_managed_request_type(parsed: &UsageCapture) -> RequestType {
+    if parsed.is_stream || parsed.ttft_ms.is_some() {
+        RequestType::Stream
+    } else {
+        RequestType::Unknown
+    }
 }
 
 fn normalize_provider(provider: &str) -> Result<String, String> {

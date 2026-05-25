@@ -285,6 +285,27 @@ pub struct RequestRecordUpsertRecord {
     pub error_text: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RequestType {
+    Unknown,
+    Sync,
+    Stream,
+}
+
+impl RequestType {
+    pub fn is_stream(self) -> bool {
+        matches!(self, Self::Stream)
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Unknown => "unknown",
+            Self::Sync => "sync",
+            Self::Stream => "stream",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RequestRecordDetail {

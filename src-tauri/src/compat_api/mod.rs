@@ -18,7 +18,7 @@ use crate::models::{
     AnthropicMessage, AnthropicMessagesRequest, AnthropicMessagesResponse, AnthropicUsage,
     CompatApiStatus, OpenAIChatChoice, OpenAIChatCompletionRequest, OpenAIChatCompletionResponse,
     OpenAIChatMessage, OpenAIResponsesRequest, OpenAIResponsesResponse, OpenAIUsage,
-    ProviderProfileRecord, RequestRecordUpsertRecord,
+    ProviderProfileRecord, RequestRecordUpsertRecord, RequestType,
 };
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -1739,6 +1739,7 @@ fn record_stream_compat_request(
     request_summary_json: Option<String>,
     error_text: Option<String>,
 ) {
+    let request_type = RequestType::Stream;
     let record = RequestRecordUpsertRecord {
         id: request_id.to_string(),
         provider: provider.to_string(),
@@ -1746,7 +1747,7 @@ fn record_stream_compat_request(
         session_id: None,
         request_id: Some(request_id.to_string()),
         model: Some(model.to_string()),
-        is_stream: true,
+        is_stream: request_type.is_stream(),
         input_tokens,
         output_tokens,
         cached_input_tokens: 0,
@@ -1802,6 +1803,11 @@ fn record_compat_request<TReq: serde::Serialize, TResp: serde::Serialize>(
     response: Option<&TResp>,
     error_text: Option<String>,
 ) {
+    let request_type = if is_stream {
+        RequestType::Stream
+    } else {
+        RequestType::Sync
+    };
     let record = RequestRecordUpsertRecord {
         id: request_id.to_string(),
         provider: provider.to_string(),
@@ -1809,7 +1815,7 @@ fn record_compat_request<TReq: serde::Serialize, TResp: serde::Serialize>(
         session_id: None,
         request_id: Some(request_id.to_string()),
         model: Some(model.to_string()),
-        is_stream,
+        is_stream: request_type.is_stream(),
         input_tokens,
         output_tokens,
         cached_input_tokens: 0,

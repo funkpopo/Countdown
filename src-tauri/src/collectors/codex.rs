@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{json, Value};
 
-use crate::models::{RequestRecordUpsertRecord, SessionUpsertRecord};
+use crate::models::{RequestRecordUpsertRecord, RequestType, SessionUpsertRecord};
 
 pub const CODEX_PROVIDER: &str = "codex";
 pub const PASSIVE_SOURCE_MODE: &str = "passive_ingest";
@@ -265,7 +265,7 @@ fn build_parsed_rollout(
             .unwrap_or_else(|| session_meta.timestamp.clone());
         let finished_at = state.finished_at.clone();
         let token_usage = state.token_usage.clone().unwrap_or_default();
-        let is_stream = state.ttft_ms.is_some() || state.token_updates > 1;
+        let request_type = classify_codex_request_type(&state);
         let model = state.model.clone();
         let status = if finished_at.is_some() {
             state
@@ -292,6 +292,7 @@ fn build_parsed_rollout(
             "cwd": state.cwd,
             "timezone": state.timezone,
             "tokenUpdates": state.token_updates,
+            "requestType": request_type.as_str(),
         })
         .to_string();
 
@@ -310,7 +311,7 @@ fn build_parsed_rollout(
             session_id: Some(session_meta.id.clone()),
             request_id: Some(state.turn_id),
             model,
-            is_stream,
+            is_stream: request_type.is_stream(),
             input_tokens: token_usage.input_tokens,
             output_tokens: token_usage.output_tokens,
             cached_input_tokens: token_usage.cached_input_tokens,
@@ -351,6 +352,14 @@ fn build_parsed_rollout(
             metadata_json: Some(session_metadata_json),
         }),
         requests,
+    }
+}
+
+fn classify_codex_request_type(state: &TurnState) -> RequestType {
+    if state.ttft_ms.is_some() || state.token_updates > 1 {
+        RequestType::Stream
+    } else {
+        RequestType::Unknown
     }
 }
 
@@ -494,6 +503,7 @@ mod tests {
         let incomplete = &parsed.requests[1];
         assert_eq!(incomplete.request_id.as_deref(), Some("turn-2"));
         assert_eq!(incomplete.model.as_deref(), Some("gpt-5.4-mini"));
+        assert!(!incomplete.is_stream);
         assert_eq!(incomplete.status, "incomplete");
         assert!(incomplete.finished_at.is_none());
     }

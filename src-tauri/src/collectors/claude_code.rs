@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use chrono::DateTime;
 use serde_json::{json, Value};
 
-use crate::models::{RequestRecordUpsertRecord, SessionUpsertRecord};
+use crate::models::{RequestRecordUpsertRecord, RequestType, SessionUpsertRecord};
 
 pub const CLAUDE_PROVIDER: &str = "claude_code";
 pub const PASSIVE_SOURCE_MODE: &str = "passive_ingest";
@@ -351,16 +351,20 @@ fn parse_assistant_usage(usage: &Value) -> Option<MessageUsage> {
     })
 }
 
+fn truncate_utf8(s: &str, max: usize) -> String {
+    if s.len() <= max {
+        return s.to_string();
+    }
+    let mut end = max;
+    while !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{}...", &s[..end])
+}
+
 fn summarize_content(content: &Value) -> Option<String> {
     match content {
-        Value::String(s) => {
-            let truncated = if s.len() > 200 {
-                format!("{}...", &s[..200])
-            } else {
-                s.clone()
-            };
-            Some(truncated)
-        }
+        Value::String(s) => Some(truncate_utf8(s, 200)),
         Value::Array(arr) => {
             let parts: Vec<String> = arr
                 .iter()
@@ -379,11 +383,7 @@ fn summarize_content(content: &Value) -> Option<String> {
             if joined.is_empty() {
                 None
             } else {
-                Some(if joined.len() > 200 {
-                    format!("{}...", &joined[..200])
-                } else {
-                    joined
-                })
+                Some(truncate_utf8(&joined, 200))
             }
         }
         _ => None,
@@ -426,12 +426,14 @@ fn build_request_record(
         .started_at
         .clone()
         .unwrap_or_else(|| msg.timestamp.clone());
+    let request_type = RequestType::Stream;
 
     let request_summary_json = json!({
         "sessionId": state.session_id,
         "sourceFile": source_file,
         "cwd": state.cwd,
         "hasToolUse": msg.has_tool_use,
+        "requestType": request_type.as_str(),
         "streamSource": "assumed_streamed_claude_code_passive_ingest",
         "ttftSource": "unavailable_passive_jsonl",
         "durationSource": if inferred_duration_ms.is_some() { "inferred_from_jsonl_timestamps" } else { "unavailable" },
@@ -454,7 +456,7 @@ fn build_request_record(
         session_id: Some(session_key.to_string()),
         request_id: Some(msg.timestamp.clone()),
         model: msg.model.clone(),
-        is_stream: true,
+        is_stream: request_type.is_stream(),
         input_tokens: usage.input_tokens,
         output_tokens: usage.output_tokens,
         cached_input_tokens: usage.cache_read_input_tokens + usage.cache_creation_input_tokens,
@@ -588,8 +590,10 @@ fn load_session_meta_overrides(sessions_dir: &Path) -> HashMap<String, SessionMe
 #[cfg(test)]
 mod tests {
     use super::{
-        build_request_record, parse_project_jsonl, AssistantMessage, MessageUsage, SessionState,
+        build_request_record, parse_project_jsonl, summarize_content, truncate_utf8,
+        AssistantMessage, MessageUsage, SessionState,
     };
+    use serde_json::json;
     use std::fs;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -725,6 +729,29 @@ mod tests {
 
         assert!(record.is_stream);
         assert_eq!(record.cached_input_tokens, 150);
+    }
+
+    #[test]
+    fn truncate_utf8_preserves_char_boundaries_for_multibyte_text() {
+        let text = "我注意到你发了一条跟项目相关的消息，但不太确定上下文。你是让我查看当前项目（countdown）中时间记录相关代码并修复时区问题吗？能再描述一下具体需求吗？";
+
+        let truncated = truncate_utf8(text, 200);
+
+        assert!(truncated.ends_with("..."));
+        assert!(truncated.is_char_boundary(truncated.len()));
+        assert!(truncated.starts_with("我注意到你发了一条跟项目相关的消息"));
+        assert!(truncated.len() < text.len() + 3);
+    }
+
+    #[test]
+    fn summarize_content_truncates_multibyte_string_without_panicking() {
+        let text = "我注意到你发了一条跟项目相关的消息，但不太确定上下文。你是让我查看当前项目（countdown）中时间记录相关代码并修复时区问题吗？能再描述一下具体需求吗？";
+
+        let summary = summarize_content(&json!(text)).expect("summary must exist");
+
+        assert!(summary.ends_with("..."));
+        assert!(summary.is_char_boundary(summary.len()));
+        assert!(summary.len() <= text.len() + 3);
     }
 
     fn unique_test_path(prefix: &str) -> PathBuf {
