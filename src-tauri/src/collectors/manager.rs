@@ -75,7 +75,7 @@ impl CollectorManager {
             repository::get_provider_counts(connection, CODEX_PROVIDER)?;
         let today_usage = repository::get_provider_today_usage(connection, CODEX_PROVIDER)?;
         let recent_requests =
-            repository::list_recent_request_records(connection, CODEX_PROVIDER, 12)?;
+            repository::list_recent_request_records(connection, CODEX_PROVIDER, 10)?;
 
         Ok(CodexOverview {
             data_dir: data_dir.display().to_string(),
@@ -130,7 +130,7 @@ impl CollectorManager {
             repository::get_provider_counts(connection, CLAUDE_PROVIDER)?;
         let today_usage = repository::get_provider_today_usage(connection, CLAUDE_PROVIDER)?;
         let recent_requests =
-            repository::list_recent_request_records(connection, CLAUDE_PROVIDER, 12)?;
+            repository::list_recent_request_records(connection, CLAUDE_PROVIDER, 10)?;
 
         Ok(ClaudeOverview {
             data_dir: data_dir.display().to_string(),

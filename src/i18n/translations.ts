@@ -43,6 +43,7 @@ export const translations: Record<Language, Translations> = {
     "recent.claude": "Recent Claude Requests",
     "recent.empty.codex": "No Codex requests yet.",
     "recent.empty.claude": "No Claude requests yet.",
+    "recent.resolving": "Resolving...",
 
     /* Storage card */
     "storage.title": "Storage",
@@ -252,6 +253,7 @@ export const translations: Record<Language, Translations> = {
     "recent.claude": "最近的 Claude 请求",
     "recent.empty.codex": "暂无 Codex 请求。",
     "recent.empty.claude": "暂无 Claude 请求。",
+    "recent.resolving": "解析中...",
 
     /* Storage card */
     "storage.title": "存储",

@@ -440,6 +440,12 @@ label {
   background: hsl(var(--card));
 }
 
+.recent-requests-card {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
 .card.wide {
   grid-column: 1 / -1;
 }
@@ -502,6 +508,12 @@ label {
   overflow: auto;
 }
 
+.recent-table-container {
+  max-height: min(400px, 44vh);
+  min-height: 0;
+  overscroll-behavior: contain;
+}
+
 .data-table {
   width: 100%;
   min-width: 960px;
@@ -525,6 +537,13 @@ label {
   letter-spacing: 0.06em;
 }
 
+.recent-table-container .data-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: hsl(var(--card));
+}
+
 .data-table tbody tr:hover {
   background: hsl(var(--accent));
 }
@@ -539,6 +558,34 @@ label {
   color: hsl(var(--muted));
   font-size: 0.875rem;
   margin: 0;
+}
+
+.recent-table-state {
+  min-height: 220px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.recent-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid hsl(var(--border) / 0.5);
+}
+
+.recent-card-meta {
+  word-break: break-all;
+  text-align: right;
+}
+
+.pagination-info {
+  color: hsl(var(--muted));
+  font-size: 0.875rem;
 }
 
 .loading {

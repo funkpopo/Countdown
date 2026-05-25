@@ -126,53 +126,7 @@ impl ClaudeCodeCollector {
             sessions.push(session_record);
 
             for msg in &state.assistant_messages {
-                let usage = msg.usage.clone().unwrap_or_default();
-                let inferred_duration_ms =
-                    infer_elapsed_ms(msg.started_at.as_deref(), &msg.timestamp);
-
-                let request_summary_json = json!({
-                    "sessionId": state.session_id,
-                    "sourceFile": source_file,
-                    "cwd": state.cwd,
-                    "hasToolUse": msg.has_tool_use,
-                    "latencySource": if inferred_duration_ms.is_some() { "inferred_from_jsonl_timestamps" } else { "unavailable" },
-                })
-                .to_string();
-
-                let response_summary_json = json!({
-                    "model": msg.model,
-                    "contentSummary": msg.content_summary,
-                    "entrypoint": state.entrypoint,
-                })
-                .to_string();
-
-                let request_id = format!("claude:{}:{}", key, msg.timestamp);
-
-                requests.push(RequestRecordUpsertRecord {
-                    id: request_id.clone(),
-                    provider: CLAUDE_PROVIDER.to_string(),
-                    source_mode: PASSIVE_SOURCE_MODE.to_string(),
-                    session_id: Some(key.clone()),
-                    request_id: Some(msg.timestamp.clone()),
-                    model: msg.model.clone(),
-                    is_stream: msg.has_tool_use || usage.cache_creation_input_tokens > 0,
-                    input_tokens: usage.input_tokens,
-                    output_tokens: usage.output_tokens,
-                    cached_input_tokens: usage.cache_read_input_tokens
-                        + usage.cache_creation_input_tokens,
-                    reasoning_tokens: 0,
-                    ttft_ms: inferred_duration_ms,
-                    duration_ms: inferred_duration_ms,
-                    status: "completed".to_string(),
-                    started_at: msg
-                        .started_at
-                        .clone()
-                        .unwrap_or_else(|| msg.timestamp.clone()),
-                    finished_at: Some(msg.timestamp.clone()),
-                    request_summary_json: Some(request_summary_json),
-                    response_summary_json: Some(response_summary_json),
-                    error_text: None,
-                });
+                requests.push(build_request_record(&key, &state, msg, &source_file));
             }
         }
 
@@ -460,6 +414,62 @@ fn infer_elapsed_ms(started_at: Option<&str>, finished_at: &str) -> Option<i64> 
     }
 }
 
+fn build_request_record(
+    session_key: &str,
+    state: &SessionState,
+    msg: &AssistantMessage,
+    source_file: &str,
+) -> RequestRecordUpsertRecord {
+    let usage = msg.usage.clone().unwrap_or_default();
+    let inferred_duration_ms = infer_elapsed_ms(msg.started_at.as_deref(), &msg.timestamp);
+    let started_at = msg
+        .started_at
+        .clone()
+        .unwrap_or_else(|| msg.timestamp.clone());
+
+    let request_summary_json = json!({
+        "sessionId": state.session_id,
+        "sourceFile": source_file,
+        "cwd": state.cwd,
+        "hasToolUse": msg.has_tool_use,
+        "streamSource": "assumed_streamed_claude_code_passive_ingest",
+        "ttftSource": "unavailable_passive_jsonl",
+        "durationSource": if inferred_duration_ms.is_some() { "inferred_from_jsonl_timestamps" } else { "unavailable" },
+    })
+    .to_string();
+
+    let response_summary_json = json!({
+        "model": msg.model,
+        "contentSummary": msg.content_summary,
+        "entrypoint": state.entrypoint,
+    })
+    .to_string();
+
+    let request_id = format!("claude:{session_key}:{}", msg.timestamp);
+
+    RequestRecordUpsertRecord {
+        id: request_id.clone(),
+        provider: CLAUDE_PROVIDER.to_string(),
+        source_mode: PASSIVE_SOURCE_MODE.to_string(),
+        session_id: Some(session_key.to_string()),
+        request_id: Some(msg.timestamp.clone()),
+        model: msg.model.clone(),
+        is_stream: true,
+        input_tokens: usage.input_tokens,
+        output_tokens: usage.output_tokens,
+        cached_input_tokens: usage.cache_read_input_tokens + usage.cache_creation_input_tokens,
+        reasoning_tokens: 0,
+        ttft_ms: None,
+        duration_ms: inferred_duration_ms,
+        status: "completed".to_string(),
+        started_at,
+        finished_at: Some(msg.timestamp.clone()),
+        request_summary_json: Some(request_summary_json),
+        response_summary_json: Some(response_summary_json),
+        error_text: None,
+    }
+}
+
 fn build_session_record(key: &str, state: &SessionState, source_file: &str) -> SessionUpsertRecord {
     let metadata_json = json!({
         "sourceFile": source_file,
@@ -577,7 +587,9 @@ fn load_session_meta_overrides(sessions_dir: &Path) -> HashMap<String, SessionMe
 
 #[cfg(test)]
 mod tests {
-    use super::parse_project_jsonl;
+    use super::{
+        build_request_record, parse_project_jsonl, AssistantMessage, MessageUsage, SessionState,
+    };
     use std::fs;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -653,6 +665,66 @@ mod tests {
             .get("empty-session")
             .expect("session must exist");
         assert!(state.assistant_messages.is_empty());
+    }
+
+    #[test]
+    fn passive_records_keep_duration_and_leave_ttft_empty() {
+        let state = SessionState {
+            session_id: "claude-session-1".to_string(),
+            cwd: Some("d:\\Projects\\Countdown".to_string()),
+            entrypoint: Some("claude_vscode".to_string()),
+            ..SessionState::default()
+        };
+        let message = AssistantMessage {
+            started_at: Some("2026-05-18T08:00:00.000Z".to_string()),
+            timestamp: "2026-05-18T08:00:05.000Z".to_string(),
+            model: Some("claude-sonnet-4-20250514".to_string()),
+            usage: Some(MessageUsage {
+                input_tokens: 500,
+                cache_read_input_tokens: 100,
+                cache_creation_input_tokens: 50,
+                output_tokens: 200,
+            }),
+            content_summary: Some("Here is the code.".to_string()),
+            has_tool_use: false,
+        };
+
+        let record = build_request_record("claude-session-1", &state, &message, "source.jsonl");
+
+        assert_eq!(record.ttft_ms, None);
+        assert_eq!(record.duration_ms, Some(5000));
+        assert!(record.is_stream);
+        assert_eq!(record.started_at, "2026-05-18T08:00:00.000Z");
+        assert_eq!(
+            record.finished_at.as_deref(),
+            Some("2026-05-18T08:00:05.000Z")
+        );
+    }
+
+    #[test]
+    fn passive_records_are_streaming_independent_of_tool_or_cache_usage() {
+        let state = SessionState {
+            session_id: "claude-session-1".to_string(),
+            ..SessionState::default()
+        };
+        let message = AssistantMessage {
+            started_at: Some("2026-05-18T08:00:00.000Z".to_string()),
+            timestamp: "2026-05-18T08:00:05.000Z".to_string(),
+            model: Some("claude-sonnet-4-20250514".to_string()),
+            usage: Some(MessageUsage {
+                input_tokens: 500,
+                cache_read_input_tokens: 100,
+                cache_creation_input_tokens: 50,
+                output_tokens: 200,
+            }),
+            content_summary: Some("[tool_use]".to_string()),
+            has_tool_use: true,
+        };
+
+        let record = build_request_record("claude-session-1", &state, &message, "source.jsonl");
+
+        assert!(record.is_stream);
+        assert_eq!(record.cached_input_tokens, 150);
     }
 
     fn unique_test_path(prefix: &str) -> PathBuf {

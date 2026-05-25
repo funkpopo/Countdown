@@ -25,6 +25,9 @@ pub fn run() {
     let tray_runtime_for_events = tray_runtime.clone();
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            let _ = tray::show_main_window(app);
+        }))
         .plugin(tauri_plugin_opener::init())
         .setup(move |app| {
             tray_runtime_for_setup.setup(app.handle())?;

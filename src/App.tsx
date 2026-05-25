@@ -6,6 +6,7 @@ import {
   getCombinedUsage,
   getDatabaseSummary,
   initializeLocalDatabase,
+  listFilteredRequests,
   type ClaudeOverview,
   type CodexOverview,
   type CombinedUsage,
@@ -88,6 +89,7 @@ function ChevronLeftIcon() {
 }
 
 type Period = "today" | "week" | "month";
+const OVERVIEW_RECENT_PAGE_SIZE = 10;
 
 function getDateRangeForPeriod(period: Period): { startDate: string; endDate: string } {
   const now = new Date();
@@ -125,6 +127,7 @@ type OverviewPageProps = {
   claudeOverview: ClaudeOverview | null;
   periodUsage: CombinedUsage | null;
   period: Period;
+  refreshToken: number;
   error: string | null;
   isPending: boolean;
   onPeriodChange: (period: Period) => void;
@@ -138,6 +141,7 @@ const OverviewPage = memo(function OverviewPage({
   claudeOverview,
   periodUsage,
   period,
+  refreshToken,
   error,
   isPending,
   onPeriodChange,
@@ -233,17 +237,21 @@ const OverviewPage = memo(function OverviewPage({
         </div>
 
         <RecentRequestsPanel
+          provider="codex"
           title={t("recent.codex")}
           dataDir={codexOverview?.dataDir}
-          requests={codexOverview?.recentRequests}
           emptyText={t("recent.empty.codex")}
+          ready={codexOverview !== null}
+          refreshToken={refreshToken}
         />
 
         <RecentRequestsPanel
+          provider="claude_code"
           title={t("recent.claude")}
           dataDir={claudeOverview?.dataDir}
-          requests={claudeOverview?.recentRequests}
           emptyText={t("recent.empty.claude")}
+          ready={claudeOverview !== null}
+          refreshToken={refreshToken}
         />
 
         <div className="card wide">
@@ -266,26 +274,83 @@ const OverviewPage = memo(function OverviewPage({
 });
 
 const RecentRequestsPanel = memo(function RecentRequestsPanel({
+  provider,
   title,
   dataDir,
-  requests,
   emptyText,
+  ready,
+  refreshToken,
 }: {
+  provider: "codex" | "claude_code";
   title: string;
   dataDir: string | undefined;
-  requests: RequestRecordListItem[] | undefined;
   emptyText: string;
+  ready: boolean;
+  refreshToken: number;
 }) {
   const { t } = useLanguage();
+  const formatNumber = useFormatNumber();
+  const [pageIndex, setPageIndex] = useState(0);
+  const [records, setRecords] = useState<RequestRecordListItem[]>([]);
+  const [total, setTotal] = useState(0);
+  const [isLoading, setIsLoading] = useState(false);
+  const [panelError, setPanelError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setPageIndex(0);
+  }, [provider, refreshToken]);
+
+  useEffect(() => {
+    if (!ready) return;
+
+    let disposed = false;
+    setIsLoading(true);
+    setPanelError(null);
+
+    void listFilteredRequests({
+      provider,
+      limit: OVERVIEW_RECENT_PAGE_SIZE,
+      offset: pageIndex * OVERVIEW_RECENT_PAGE_SIZE,
+    })
+      .then((result) => {
+        if (disposed) return;
+        setRecords(result.records);
+        setTotal(result.total);
+      })
+      .catch(() => {
+        if (disposed) return;
+        setRecords([]);
+        setTotal(0);
+        setPanelError(t("error.loadRequests"));
+      })
+      .finally(() => {
+        if (!disposed) {
+          setIsLoading(false);
+        }
+      });
+
+    return () => {
+      disposed = true;
+    };
+  }, [pageIndex, provider, ready, refreshToken, t]);
+
+  const start = total === 0 ? 0 : pageIndex * OVERVIEW_RECENT_PAGE_SIZE + 1;
+  const end = total === 0 ? 0 : pageIndex * OVERVIEW_RECENT_PAGE_SIZE + records.length;
+  const hasPreviousPage = pageIndex > 0;
+  const hasNextPage = (pageIndex + 1) * OVERVIEW_RECENT_PAGE_SIZE < total;
+  const showLoadingState = !ready || isLoading;
 
   return (
-    <div className="card wide">
+    <div className="card wide recent-requests-card">
       <div className="card-header">
         <h2>{title}</h2>
-        <span className="card-meta mono">{dataDir ?? "resolving"}</span>
+        <span className="card-meta mono recent-card-meta">{dataDir ?? t("recent.resolving")}</span>
       </div>
-      {requests?.length ? (
-        <div className="table-container">
+      {panelError ? <div className="notice error">{panelError}</div> : null}
+      {showLoadingState ? (
+        <div className="recent-table-state">{t("loading.requests")}</div>
+      ) : records.length ? (
+        <div className="table-container recent-table-container">
           <table className="data-table">
             <thead>
               <tr>
@@ -302,7 +367,7 @@ const RecentRequestsPanel = memo(function RecentRequestsPanel({
               </tr>
             </thead>
             <tbody>
-              {requests.map((request) => (
+              {records.map((request) => (
                 <tr key={request.id} className="request-row">
                   <td>
                     <div className="primary-cell">
@@ -325,8 +390,31 @@ const RecentRequestsPanel = memo(function RecentRequestsPanel({
           </table>
         </div>
       ) : (
-        <p className="empty">{emptyText}</p>
+        <div className="recent-table-state">
+          <p className="empty">{emptyText}</p>
+        </div>
       )}
+      <div className="recent-pagination">
+        <button
+          type="button"
+          className="ghost"
+          onClick={() => setPageIndex((current) => current - 1)}
+          disabled={showLoadingState || !hasPreviousPage}
+        >
+          {t("pagination.previous")}
+        </button>
+        <span className="pagination-info">
+          {t("pagination.info", formatNumber(start), formatNumber(end), formatNumber(total))}
+        </span>
+        <button
+          type="button"
+          className="ghost"
+          onClick={() => setPageIndex((current) => current + 1)}
+          disabled={showLoadingState || !hasNextPage}
+        >
+          {t("pagination.next")}
+        </button>
+      </div>
     </div>
   );
 });
@@ -359,6 +447,7 @@ function App() {
   const [visitedRequests, setVisitedRequests] = useState(false);
   const [visitedSettings, setVisitedSettings] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [overviewRefreshToken, setOverviewRefreshToken] = useState(0);
 
   const fetchAllPeriodUsage = async () => {
     const periods: Period[] = ["today", "week", "month"];
@@ -396,6 +485,7 @@ function App() {
         setDatabaseSummary(summary);
         setCodexOverview(codex);
         setClaudeOverview(claude);
+        setOverviewRefreshToken((current) => current + 1);
       } catch (refreshError) {
         setError(
           refreshError instanceof Error ? refreshError.message : t("error.loadAppState"),
@@ -508,6 +598,7 @@ function App() {
             claudeOverview={claudeOverview}
             periodUsage={periodUsage[period]}
             period={period}
+            refreshToken={overviewRefreshToken}
             error={error}
             isPending={isPending}
             onPeriodChange={handlePeriodChange}

@@ -232,9 +232,12 @@ fn calculate_window_position(tray_rect: &tauri::Rect) -> (i32, i32) {
     (window_x.max(0), window_y.max(0))
 }
 
-fn show_main_window(app: &AppHandle) -> Result<(), String> {
+pub(crate) fn show_main_window(app: &AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("main") {
         window.show().map_err(|e| e.to_string())?;
+        if window.is_minimized().map_err(|e| e.to_string())? {
+            window.unminimize().map_err(|e| e.to_string())?;
+        }
         window.set_focus().map_err(|e| e.to_string())?;
         return Ok(());
     }
