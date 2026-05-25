@@ -209,33 +209,6 @@ export type CompatApiStatus = {
   profilesCount: number;
 };
 
-export type ManagedLaunchInput = {
-  provider: "codex" | "claude_code";
-  executable: string;
-  args: string[];
-  stdin: string | null;
-  cwd: string | null;
-  model: string | null;
-};
-
-export type ManagedLaunchResult = {
-  provider: string;
-  sourceMode: string;
-  sessionId: string;
-  requestId: string;
-  status: string;
-  exitCode: number | null;
-  model: string | null;
-  inputTokens: number;
-  outputTokens: number;
-  cachedInputTokens: number;
-  reasoningTokens: number;
-  ttftMs: number | null;
-  durationMs: number;
-  stdout: string;
-  stderr: string;
-};
-
 export async function getBootstrapInfo(): Promise<BootstrapInfo> {
   return invoke<BootstrapInfo>("get_bootstrap_info");
 }
@@ -270,10 +243,6 @@ export async function saveProviderProfilesBatch(
 
 export async function getCodexOverview(): Promise<CodexOverview> {
   return invoke<CodexOverview>("get_codex_overview");
-}
-
-export async function runManagedLaunch(input: ManagedLaunchInput): Promise<ManagedLaunchResult> {
-  return invoke<ManagedLaunchResult>("run_managed_launch", { input });
 }
 
 export async function getClaudeCodeOverview(): Promise<ClaudeOverview> {

@@ -87,7 +87,6 @@ export const translations: Record<Language, Translations> = {
     "error.stopCompat": "Failed to stop Compat API server.",
     "error.saveProfile": "Failed to save provider profile.",
     "error.importProfiles": "Failed to import provider profiles.",
-    "error.managedLaunch": "Failed to run managed launch.",
     "error.batchEmpty": "Paste a JSON array or JSONL payload first.",
     "error.refreshUsage": "Failed to load usage data.",
     "error.syncFailed": "Background sync failed.",
@@ -133,23 +132,6 @@ export const translations: Record<Language, Translations> = {
     "detail.duration": "Duration",
     "detail.startedAt": "Started At",
     "detail.finishedAt": "Finished At",
-
-    /* Settings - Managed Launch */
-    "settings.managedLaunch": "Managed Launch",
-    "settings.provider": "Provider",
-    "settings.executable": "Executable",
-    "settings.args": "Args",
-    "settings.workingDir": "Working Dir",
-    "settings.model": "Model",
-    "settings.stdin": "Stdin",
-    "settings.runCapture": "Run & Capture",
-    "settings.placeholder.executable": "codex",
-    "settings.placeholder.args": '--output-format stream-json -p "Summarize this project"',
-    "settings.placeholder.cwd": "d:\\Projects\\Countdown",
-    "settings.placeholder.model": "optional fallback",
-    "settings.placeholder.stdin": "Optional prompt or JSONL input for a wrapper script",
-    "settings.option.codex": "Codex",
-    "settings.option.claudeCode": "Claude Code",
 
     /* Settings - Compat API */
     "settings.compatApi": "Local Compat API",
@@ -200,11 +182,7 @@ export const translations: Record<Language, Translations> = {
     "settings.saved": (name) => `Saved ${name}`,
     "settings.compatListening": (addr) => `Compat API listening on ${addr}`,
     "settings.compatStopped": "Compat API stopped",
-    "settings.captured": (provider) => `Captured ${provider} managed launch`,
     "settings.imported": (count) => `Imported ${count} provider profiles`,
-    "settings.tokens": "tokens",
-    "settings.ms": "ms",
-    "settings.modelUnknown": "model unknown",
 
     /* QuickView */
     "quickview.today": "TODAY",
@@ -304,7 +282,6 @@ export const translations: Record<Language, Translations> = {
     "error.stopCompat": "停止兼容 API 服务器失败。",
     "error.saveProfile": "保存提供商配置失败。",
     "error.importProfiles": "导入提供商配置失败。",
-    "error.managedLaunch": "执行托管启动失败。",
     "error.batchEmpty": "请先粘贴 JSON 数组或 JSONL 数据。",
     "error.refreshUsage": "加载用量数据失败。",
     "error.syncFailed": "后台同步失败。",
@@ -350,23 +327,6 @@ export const translations: Record<Language, Translations> = {
     "detail.duration": "耗时",
     "detail.startedAt": "开始时间",
     "detail.finishedAt": "结束时间",
-
-    /* Settings - Managed Launch */
-    "settings.managedLaunch": "托管启动",
-    "settings.provider": "提供商",
-    "settings.executable": "可执行文件",
-    "settings.args": "参数",
-    "settings.workingDir": "工作目录",
-    "settings.model": "模型",
-    "settings.stdin": "标准输入",
-    "settings.runCapture": "运行并捕获",
-    "settings.placeholder.executable": "codex",
-    "settings.placeholder.args": '--output-format stream-json -p "总结此项目"',
-    "settings.placeholder.cwd": "d:\\Projects\\Countdown",
-    "settings.placeholder.model": "可选回退模型",
-    "settings.placeholder.stdin": "用于包装脚本的可选提示词或 JSONL 输入",
-    "settings.option.codex": "Codex",
-    "settings.option.claudeCode": "Claude Code",
 
     /* Settings - Compat API */
     "settings.compatApi": "本地兼容 API",
@@ -417,11 +377,7 @@ export const translations: Record<Language, Translations> = {
     "settings.saved": (name) => `已保存 ${name}`,
     "settings.compatListening": (addr) => `兼容 API 正在监听 ${addr}`,
     "settings.compatStopped": "兼容 API 已停止",
-    "settings.captured": (provider) => `已捕获 ${provider} 托管启动`,
     "settings.imported": (count) => `已导入 ${count} 个提供商配置`,
-    "settings.tokens": "令牌",
-    "settings.ms": "毫秒",
-    "settings.modelUnknown": "未知模型",
 
     /* QuickView */
     "quickview.today": "今日",

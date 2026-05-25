@@ -6,10 +6,7 @@ import {
   startCompatApiServer,
   stopCompatApiServer,
   getCompatApiStatus,
-  runManagedLaunch,
   type CompatApiStatus,
-  type ManagedLaunchInput,
-  type ManagedLaunchResult,
   type ProviderProfileRecord,
   type ProviderProfileUpsertInput,
 } from "./desktop";
@@ -35,18 +32,6 @@ function splitList(value: string): string[] {
     .split(/[,\n]/)
     .map((item) => item.trim())
     .filter(Boolean);
-}
-
-function splitShellArgs(value: string): string[] {
-  const args: string[] = [];
-  const pattern = /"([^"]*)"|'([^']*)'|[^\s]+/g;
-  let match: RegExpExecArray | null;
-
-  while ((match = pattern.exec(value)) !== null) {
-    args.push(match[1] ?? match[2] ?? match[0]);
-  }
-
-  return args;
 }
 
 function normalizeStringList(value: unknown): string[] {
@@ -254,16 +239,6 @@ function Settings() {
   const [success, setSuccess] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const [editingProfile, setEditingProfile] = useState<EditableProviderProfile | null>(null);
-  const [launchForm, setLaunchForm] = useState<ManagedLaunchInput>({
-    provider: "codex",
-    executable: "codex",
-    args: [],
-    stdin: null,
-    cwd: null,
-    model: null,
-  });
-  const [launchArgsText, setLaunchArgsText] = useState("");
-  const [launchResult, setLaunchResult] = useState<ManagedLaunchResult | null>(null);
   const enabledProfiles = profiles.filter((profile) => profile.enabled);
   const openAiProfiles = profiles.filter((profile) => profile.apiFormat === "openai" || profile.apiFormat === "custom");
   const anthropicProfiles = profiles.filter((profile) => profile.apiFormat === "anthropic");
@@ -365,30 +340,6 @@ function Settings() {
     });
   };
 
-  const handleManagedLaunch = async () => {
-    startTransition(async () => {
-      try {
-        setError(null);
-        setSuccess(null);
-        setLaunchResult(null);
-        const result = await runManagedLaunch({
-          ...launchForm,
-          executable: launchForm.executable.trim(),
-          args: splitShellArgs(launchArgsText),
-          stdin: normalizeNullableText(launchForm.stdin),
-          cwd: normalizeNullableText(launchForm.cwd),
-          model: normalizeNullableText(launchForm.model),
-        });
-        setLaunchResult(result);
-        setSuccess(t("settings.captured", result.provider));
-      } catch (launchError) {
-        setError(
-          launchError instanceof Error ? launchError.message : t("error.managedLaunch"),
-        );
-      }
-    });
-  };
-
   const handleLanguageChange = (lang: Language) => {
     setLanguage(lang);
   };
@@ -413,104 +364,6 @@ function Settings() {
             </select>
           </div>
         </div>
-      </section>
-
-      <section className="settings-block">
-        <div className="section-header">
-          <h2>{t("settings.managedLaunch")}</h2>
-        </div>
-
-        <div className="profile-grid">
-          <div className="settings-group">
-            <label htmlFor="launchProvider">{t("settings.provider")}</label>
-            <select
-              id="launchProvider"
-              value={launchForm.provider}
-              onChange={(event) => {
-                const provider = event.target.value as "codex" | "claude_code";
-                setLaunchForm({
-                  ...launchForm,
-                  provider,
-                  executable: provider === "codex" ? "codex" : "claude",
-                });
-              }}
-            >
-              <option value="codex">{t("settings.option.codex")}</option>
-              <option value="claude_code">{t("settings.option.claudeCode")}</option>
-            </select>
-          </div>
-
-          <div className="settings-group">
-            <label htmlFor="launchExecutable">{t("settings.executable")}</label>
-            <input
-              id="launchExecutable"
-              type="text"
-              value={launchForm.executable}
-              onChange={(event) => setLaunchForm({ ...launchForm, executable: event.target.value })}
-              placeholder={t("settings.placeholder.executable")}
-            />
-          </div>
-
-          <div className="settings-group full-width">
-            <label htmlFor="launchArgs">{t("settings.args")}</label>
-            <input
-              id="launchArgs"
-              type="text"
-              value={launchArgsText}
-              onChange={(event) => setLaunchArgsText(event.target.value)}
-              placeholder={t("settings.placeholder.args")}
-            />
-          </div>
-
-          <div className="settings-group">
-            <label htmlFor="launchCwd">{t("settings.workingDir")}</label>
-            <input
-              id="launchCwd"
-              type="text"
-              value={launchForm.cwd ?? ""}
-              onChange={(event) => setLaunchForm({ ...launchForm, cwd: event.target.value })}
-              placeholder={t("settings.placeholder.cwd")}
-            />
-          </div>
-
-          <div className="settings-group">
-            <label htmlFor="launchModel">{t("settings.model")}</label>
-            <input
-              id="launchModel"
-              type="text"
-              value={launchForm.model ?? ""}
-              onChange={(event) => setLaunchForm({ ...launchForm, model: event.target.value })}
-              placeholder={t("settings.placeholder.model")}
-            />
-          </div>
-
-          <div className="settings-group full-width">
-            <label htmlFor="launchStdin">{t("settings.stdin")}</label>
-            <textarea
-              id="launchStdin"
-              value={launchForm.stdin ?? ""}
-              onChange={(event) => setLaunchForm({ ...launchForm, stdin: event.target.value })}
-              placeholder={t("settings.placeholder.stdin")}
-            />
-          </div>
-        </div>
-
-        <div className="settings-actions">
-          <button type="button" onClick={handleManagedLaunch} disabled={isPending}>
-            {t("settings.runCapture")}
-          </button>
-        </div>
-
-        {launchResult ? (
-          <div className="status-strip">
-            <span className={`status-pill ${launchResult.status === "completed" ? "running" : "stopped"}`}>
-              {launchResult.status}
-            </span>
-            <span>{launchResult.inputTokens + launchResult.outputTokens} {t("settings.tokens")}</span>
-            <span>{launchResult.durationMs} {t("settings.ms")}</span>
-            <span className="mono">{launchResult.model ?? t("settings.modelUnknown")}</span>
-          </div>
-        ) : null}
       </section>
 
       <section className="settings-block">
