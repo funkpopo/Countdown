@@ -1,4 +1,4 @@
-import { lazy, memo, Suspense, useEffect, useState, useTransition } from "react";
+import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useState, useTransition } from "react";
 import { listen } from "@tauri-apps/api/event";
 import {
   getClaudeCodeOverview,
@@ -13,37 +13,28 @@ import {
   type DatabaseSummary,
   type RequestRecordListItem,
 } from "./desktop";
+import { useLanguage } from "./i18n";
 import "./App.css";
 
 const Requests = lazy(() => import("./Requests"));
 const Settings = lazy(() => import("./Settings"));
-const numberFormatter = new Intl.NumberFormat("en-US");
-const dateTimeFormatter = new Intl.DateTimeFormat("zh-CN", {
-  year: "numeric",
-  month: "2-digit",
-  day: "2-digit",
-  hour: "2-digit",
-  minute: "2-digit",
-  second: "2-digit",
-  hour12: false,
-});
 
-function formatNumber(value: number | null | undefined) {
-  if (value == null) return "0";
-  return numberFormatter.format(value);
+function useFormatNumber() {
+  const { language } = useLanguage();
+  const formatter = useMemo(() => new Intl.NumberFormat(language === "zh" ? "zh-CN" : "en-US"), [language]);
+  return useCallback((value: number | null | undefined) => {
+    if (value == null) return "0";
+    return formatter.format(value);
+  }, [formatter]);
 }
 
-function formatMs(value: number | null | undefined) {
-  if (value == null) return "N/A";
-  if (value >= 1000) return `${(value / 1000).toFixed(2)} s`;
-  return `${value} ms`;
-}
-
-function formatDateTime(value: string | null | undefined) {
-  if (!value) return "N/A";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return dateTimeFormatter.format(date);
+function useFormatMs() {
+  const { t } = useLanguage();
+  return useCallback((value: number | null | undefined) => {
+    if (value == null) return t("n/a");
+    if (value >= 1000) return `${(value / 1000).toFixed(2)} s`;
+    return `${value} ms`;
+  }, [t]);
 }
 
 function renderUsageStat(label: string, value: string) {
@@ -52,28 +43,6 @@ function renderUsageStat(label: string, value: string) {
       <span>{label}</span>
       <strong>{value}</strong>
     </div>
-  );
-}
-
-function renderRequestRow(request: RequestRecordListItem) {
-  return (
-    <tr key={request.id}>
-      <td>
-        <div className="primary-cell">
-          <strong>{request.model ?? "Unknown model"}</strong>
-          <span>{request.requestId ?? request.id}</span>
-        </div>
-      </td>
-      <td>{request.isStream ? "Stream" : "Non-stream"}</td>
-      <td>{formatNumber(request.inputTokens)}</td>
-      <td>{formatNumber(request.outputTokens)}</td>
-      <td>{formatNumber(request.cachedInputTokens)}</td>
-      <td>{formatNumber(request.reasoningTokens)}</td>
-      <td>{formatMs(request.ttftMs)}</td>
-      <td>{formatMs(request.durationMs)}</td>
-      <td>{request.status}</td>
-      <td>{formatDateTime(request.startedAt)}</td>
-    </tr>
   );
 }
 
@@ -119,12 +88,6 @@ function ChevronLeftIcon() {
 }
 
 type Period = "today" | "week" | "month";
-
-const PERIOD_LABELS: Record<Period, string> = {
-  today: "Today",
-  week: "This Week",
-  month: "This Month",
-};
 
 function getDateRangeForPeriod(period: Period): { startDate: string; endDate: string } {
   const now = new Date();
@@ -181,6 +144,10 @@ const OverviewPage = memo(function OverviewPage({
   onRefresh,
   onInitializeDatabase,
 }: OverviewPageProps) {
+  const { t } = useLanguage();
+  const formatNumber = useFormatNumber();
+  const formatMs = useFormatMs();
+
   const codexTodayUsage: DailyUsageRecord | null = codexOverview?.todayUsage ?? null;
   const claudeTodayUsage: DailyUsageRecord | null = claudeOverview?.todayUsage ?? null;
 
@@ -188,16 +155,17 @@ const OverviewPage = memo(function OverviewPage({
     <div className="page">
       <div className="page-header">
         <div>
-          <h1>Overview</h1>
+          <h1>{t("overview.title")}</h1>
           <p className="page-meta">
-            {formatNumber(databaseSummary?.providerProfiles.length)} profiles ·{" "}
-            {formatNumber(codexOverview?.requestCount)} Codex requests ·{" "}
-            {formatNumber(claudeOverview?.requestCount)} Claude requests
+            {t("overview.meta",
+              formatNumber(databaseSummary?.providerProfiles.length),
+              formatNumber(codexOverview?.requestCount),
+              formatNumber(claudeOverview?.requestCount))}
           </p>
         </div>
         <div className="actions">
           <button type="button" onClick={onRefresh} disabled={isPending}>
-            Refresh
+            {t("overview.refresh")}
           </button>
           <button
             type="button"
@@ -205,7 +173,7 @@ const OverviewPage = memo(function OverviewPage({
             onClick={onInitializeDatabase}
             disabled={isPending}
           >
-            Init DB
+            {t("overview.initDb")}
           </button>
         </div>
       </div>
@@ -219,7 +187,7 @@ const OverviewPage = memo(function OverviewPage({
             className={"period-tab" + (period === p ? " active" : "")}
             onClick={() => onPeriodChange(p)}
           >
-            {PERIOD_LABELS[p]}
+            {t(`tab.${p}`)}
           </button>
         ))}
         <span className="period-range">
@@ -232,66 +200,64 @@ const OverviewPage = memo(function OverviewPage({
       <div className="grid">
         <div className="card">
           <div className="card-header">
-            <h2>Codex</h2>
+            <h2>{t("codex.title")}</h2>
             <span className="card-meta">
-              {periodUsage
-                ? formatNumber(codexOverview?.sessionCount) + " sessions"
-                : formatNumber(codexOverview?.sessionCount) + " sessions"}
+              {t("codex.sessions", formatNumber(codexOverview?.sessionCount))}
             </span>
           </div>
           <div className="stats">
-            {renderUsageStat("Input", formatNumber(periodUsage?.codexInputTokens))}
-            {renderUsageStat("Output", formatNumber(periodUsage?.codexOutputTokens))}
-            {renderUsageStat("Total", formatNumber(periodUsage?.codexTotalTokens))}
-            {renderUsageStat("Requests", formatNumber(periodUsage?.codexRequestCount))}
-            {renderUsageStat("Avg TTFT", formatMs(codexTodayUsage?.avgTtftMs ?? null))}
-            {renderUsageStat("Avg Duration", formatMs(codexTodayUsage?.avgDurationMs ?? null))}
+            {renderUsageStat(t("stat.input"), formatNumber(periodUsage?.codexInputTokens))}
+            {renderUsageStat(t("stat.output"), formatNumber(periodUsage?.codexOutputTokens))}
+            {renderUsageStat(t("stat.total"), formatNumber(periodUsage?.codexTotalTokens))}
+            {renderUsageStat(t("stat.requests"), formatNumber(periodUsage?.codexRequestCount))}
+            {renderUsageStat(t("stat.avgTtft"), formatMs(codexTodayUsage?.avgTtftMs ?? null))}
+            {renderUsageStat(t("stat.avgDuration"), formatMs(codexTodayUsage?.avgDurationMs ?? null))}
           </div>
         </div>
 
         <div className="card">
           <div className="card-header">
-            <h2>Claude Code</h2>
+            <h2>{t("claude.title")}</h2>
             <span className="card-meta">
-              {formatNumber(claudeOverview?.sessionCount)} sessions
+              {t("codex.sessions", formatNumber(claudeOverview?.sessionCount))}
             </span>
           </div>
           <div className="stats">
-            {renderUsageStat("Input", formatNumber(periodUsage?.claudeInputTokens))}
-            {renderUsageStat("Output", formatNumber(periodUsage?.claudeOutputTokens))}
-            {renderUsageStat("Total", formatNumber(periodUsage?.claudeTotalTokens))}
-            {renderUsageStat("Requests", formatNumber(periodUsage?.claudeRequestCount))}
-            {renderUsageStat("Avg TTFT", formatMs(claudeTodayUsage?.avgTtftMs ?? null))}
-            {renderUsageStat("Avg Duration", formatMs(claudeTodayUsage?.avgDurationMs ?? null))}
+            {renderUsageStat(t("stat.input"), formatNumber(periodUsage?.claudeInputTokens))}
+            {renderUsageStat(t("stat.output"), formatNumber(periodUsage?.claudeOutputTokens))}
+            {renderUsageStat(t("stat.total"), formatNumber(periodUsage?.claudeTotalTokens))}
+            {renderUsageStat(t("stat.requests"), formatNumber(periodUsage?.claudeRequestCount))}
+            {renderUsageStat(t("stat.avgTtft"), formatMs(claudeTodayUsage?.avgTtftMs ?? null))}
+            {renderUsageStat(t("stat.avgDuration"), formatMs(claudeTodayUsage?.avgDurationMs ?? null))}
           </div>
         </div>
 
         <RecentRequestsPanel
-          title="Recent Codex Requests"
+          title={t("recent.codex")}
           dataDir={codexOverview?.dataDir}
           requests={codexOverview?.recentRequests}
-          emptyText="No Codex requests yet."
+          emptyText={t("recent.empty.codex")}
         />
 
         <RecentRequestsPanel
-          title="Recent Claude Requests"
+          title={t("recent.claude")}
           dataDir={claudeOverview?.dataDir}
           requests={claudeOverview?.recentRequests}
-          emptyText="No Claude requests yet."
+          emptyText={t("recent.empty.claude")}
         />
 
         <div className="card wide">
           <div className="card-header">
-            <h2>Storage</h2>
-            <span className="card-meta">{formatNumber(databaseSummary?.tables.length)} tables</span>
+            <h2>{t("storage.title")}</h2>
+            <span className="card-meta">{t("storage.tables", formatNumber(databaseSummary?.tables.length))}</span>
           </div>
           <div className="table-grid">
             {databaseSummary?.tables.map((table) => (
               <div key={table.tableName} className="table-card">
                 <strong>{table.tableName}</strong>
-                <span>{formatNumber(table.rowCount)} rows</span>
+                <span>{formatNumber(table.rowCount)} {t("storage.rows")}</span>
               </div>
-            )) ?? <p className="empty">Waiting for schema summary...</p>}
+            )) ?? <p className="empty">{t("storage.waiting")}</p>}
           </div>
         </div>
       </div>
@@ -310,6 +276,8 @@ const RecentRequestsPanel = memo(function RecentRequestsPanel({
   requests: RequestRecordListItem[] | undefined;
   emptyText: string;
 }) {
+  const { t } = useLanguage();
+
   return (
     <div className="card wide">
       <div className="card-header">
@@ -321,19 +289,39 @@ const RecentRequestsPanel = memo(function RecentRequestsPanel({
           <table className="data-table">
             <thead>
               <tr>
-                <th>Request</th>
-                <th>Mode</th>
-                <th>Input</th>
-                <th>Output</th>
-                <th>Cached</th>
-                <th>Reasoning</th>
-                <th>TTFT</th>
-                <th>Duration</th>
-                <th>Status</th>
-                <th>Started</th>
+                <th>{t("th.request")}</th>
+                <th>{t("th.mode")}</th>
+                <th>{t("th.input")}</th>
+                <th>{t("th.output")}</th>
+                <th>{t("th.cached")}</th>
+                <th>{t("th.reasoning")}</th>
+                <th>{t("th.ttft")}</th>
+                <th>{t("th.duration")}</th>
+                <th>{t("th.status")}</th>
+                <th>{t("th.started")}</th>
               </tr>
             </thead>
-            <tbody>{requests.map(renderRequestRow)}</tbody>
+            <tbody>
+              {requests.map((request) => (
+                <tr key={request.id} className="request-row">
+                  <td>
+                    <div className="primary-cell">
+                      <strong>{request.model ?? t("model.unknown")}</strong>
+                      <span>{request.requestId ?? request.id}</span>
+                    </div>
+                  </td>
+                  <td>{request.isStream ? t("mode.stream") : t("mode.nonStream")}</td>
+                  <td>{request.inputTokens ?? "0"}</td>
+                  <td>{request.outputTokens ?? "0"}</td>
+                  <td>{request.cachedInputTokens ?? "0"}</td>
+                  <td>{request.reasoningTokens ?? "0"}</td>
+                  <td>{formatDuration(request.ttftMs, t)}</td>
+                  <td>{formatDuration(request.durationMs, t)}</td>
+                  <td>{request.status}</td>
+                  <td>{formatDate(request.startedAt)}</td>
+                </tr>
+              ))}
+            </tbody>
           </table>
         </div>
       ) : (
@@ -343,18 +331,28 @@ const RecentRequestsPanel = memo(function RecentRequestsPanel({
   );
 });
 
-const NAV_ITEMS = [
-  { key: "overview" as const, label: "Overview", icon: GridIcon },
-  { key: "requests" as const, label: "Requests", icon: ListIcon },
-  { key: "settings" as const, label: "Settings", icon: SettingsIcon },
-];
+function formatDuration(value: number | null | undefined, t: (k: string) => string) {
+  if (value == null) return t("n/a");
+  if (value >= 1000) return `${(value / 1000).toFixed(2)} s`;
+  return `${value} ms`;
+}
+
+function formatDate(value: string | null | undefined) {
+  if (!value) return "N/A";
+  return value;
+}
 
 function App() {
+  const { t } = useLanguage();
   const [databaseSummary, setDatabaseSummary] = useState<DatabaseSummary | null>(null);
   const [codexOverview, setCodexOverview] = useState<CodexOverview | null>(null);
   const [claudeOverview, setClaudeOverview] = useState<ClaudeOverview | null>(null);
   const [period, setPeriod] = useState<Period>("today");
-  const [periodUsage, setPeriodUsage] = useState<CombinedUsage | null>(null);
+  const [periodUsage, setPeriodUsage] = useState<Record<Period, CombinedUsage | null>>({
+    today: null,
+    week: null,
+    month: null,
+  });
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const [currentPage, setCurrentPage] = useState<"overview" | "requests" | "settings">("overview");
@@ -362,10 +360,25 @@ function App() {
   const [visitedSettings, setVisitedSettings] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
+  const fetchAllPeriodUsage = async () => {
+    const periods: Period[] = ["today", "week", "month"];
+    const results = await Promise.all(
+      periods.map(async (p) => {
+        try {
+          const usage = await getCombinedUsage(getDateRangeForPeriod(p));
+          return [p, usage] as const;
+        } catch {
+          return [p, null] as const;
+        }
+      }),
+    );
+    setPeriodUsage(Object.fromEntries(results) as Record<Period, CombinedUsage | null>);
+  };
+
   const fetchPeriodUsage = async (p: Period) => {
     try {
       const usage = await getCombinedUsage(getDateRangeForPeriod(p));
-      setPeriodUsage(usage);
+      setPeriodUsage((prev) => ({ ...prev, [p]: usage }));
     } catch {
       // period fetch errors are non-critical
     }
@@ -385,7 +398,7 @@ function App() {
         setClaudeOverview(claude);
       } catch (refreshError) {
         setError(
-          refreshError instanceof Error ? refreshError.message : "Failed to load app state.",
+          refreshError instanceof Error ? refreshError.message : t("error.loadAppState"),
         );
       }
     });
@@ -393,7 +406,7 @@ function App() {
 
   useEffect(() => {
     refresh();
-    fetchPeriodUsage(period);
+    fetchAllPeriodUsage();
   }, []);
 
   useEffect(() => {
@@ -404,10 +417,10 @@ function App() {
     void Promise.all([
       listen("usage-sync-completed", () => {
         refresh();
-        fetchPeriodUsage(period);
+        fetchAllPeriodUsage();
       }),
       listen<{ error?: string }>("usage-sync-failed", (event) => {
-        setError(event.payload?.error ?? "Background sync failed.");
+        setError(event.payload?.error ?? t("error.syncFailed"));
       }),
     ]).then(([completed, failed]) => {
       if (disposed) {
@@ -428,7 +441,7 @@ function App() {
 
   const handlePeriodChange = (p: Period) => {
     setPeriod(p);
-    fetchPeriodUsage(p);
+    if (!periodUsage[p]) fetchPeriodUsage(p);
   };
 
   const handleInitializeDatabase = async () => {
@@ -437,10 +450,10 @@ function App() {
         setError(null);
         await initializeLocalDatabase();
         refresh();
-        fetchPeriodUsage(period);
+        fetchAllPeriodUsage();
       } catch (initError) {
         setError(
-          initError instanceof Error ? initError.message : "Failed to initialize database.",
+          initError instanceof Error ? initError.message : t("error.initDb"),
         );
       }
     });
@@ -452,14 +465,20 @@ function App() {
     setCurrentPage(page);
   };
 
+  const navItems = [
+    { key: "overview" as const, label: t("nav.overview"), icon: GridIcon },
+    { key: "requests" as const, label: t("nav.requests"), icon: ListIcon },
+    { key: "settings" as const, label: t("nav.settings"), icon: SettingsIcon },
+  ];
+
   return (
     <div className="app-layout">
       <aside className={"sidebar" + (sidebarCollapsed ? " collapsed" : "")}>
         <div className="sidebar-header">
-          <h1>{sidebarCollapsed ? "C" : "Countdown"}</h1>
+          <h1>{sidebarCollapsed ? t("app.title.collapsed") : t("app.title")}</h1>
         </div>
         <nav className="sidebar-nav">
-          {NAV_ITEMS.map(({ key, label, icon: Icon }) => (
+          {navItems.map(({ key, label, icon: Icon }) => (
             <button
               key={key}
               className={"nav-item" + (currentPage === key ? " active" : "")}
@@ -471,11 +490,11 @@ function App() {
           ))}
         </nav>
         <div className="sidebar-footer">
-          {!sidebarCollapsed && <span className="version">v0.1.0</span>}
+          {!sidebarCollapsed && <span className="version">{t("version")}</span>}
           <button
             className="collapse-btn"
             onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-            title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+            title={sidebarCollapsed ? t("sidebar.expand") : t("sidebar.collapse")}
           >
             <ChevronLeftIcon />
           </button>
@@ -487,7 +506,7 @@ function App() {
             databaseSummary={databaseSummary}
             codexOverview={codexOverview}
             claudeOverview={claudeOverview}
-            periodUsage={periodUsage}
+            periodUsage={periodUsage[period]}
             period={period}
             error={error}
             isPending={isPending}
@@ -497,12 +516,12 @@ function App() {
           />
         )}
         {currentPage === "requests" && visitedRequests && (
-          <Suspense fallback={<div className="loading">Loading requests...</div>}>
+          <Suspense fallback={<div className="loading">{t("loading.requests")}</div>}>
             <Requests />
           </Suspense>
         )}
         {currentPage === "settings" && visitedSettings && (
-          <Suspense fallback={<div className="loading">Loading settings...</div>}>
+          <Suspense fallback={<div className="loading">{t("loading.settings")}</div>}>
             <Settings />
           </Suspense>
         )}

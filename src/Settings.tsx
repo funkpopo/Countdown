@@ -13,6 +13,7 @@ import {
   type ProviderProfileRecord,
   type ProviderProfileUpsertInput,
 } from "./desktop";
+import { useLanguage, type Language } from "./i18n";
 import "./Settings.css";
 
 type EditableProviderProfile = ProviderProfileUpsertInput & {
@@ -216,19 +217,19 @@ function parseBatchProfiles(raw: string): ProviderProfileUpsertInput[] {
   }
 }
 
-function formatRouteSummary(profile: ProviderProfileRecord): string {
+function formatRouteSummary(profile: ProviderProfileRecord, t: (key: string, ...args: string[]) => string): string {
   const models = readExactModels(profile.extraJson);
   const prefixes = readModelPrefixes(profile.extraJson);
 
   if (models.length > 0) {
-    return `models: ${models.join(", ")}`;
+    return t("settings.models", models.join(", "));
   }
 
   if (prefixes.length > 0) {
-    return `prefixes: ${prefixes.join(", ")}`;
+    return t("settings.prefixes", prefixes.join(", "));
   }
 
-  return "default";
+  return t("settings.defaultRoute");
 }
 
 function formatApiFormat(value: string): string {
@@ -244,6 +245,7 @@ function formatApiFormat(value: string): string {
 }
 
 function Settings() {
+  const { t, language, setLanguage } = useLanguage();
   const [profiles, setProfiles] = useState<ProviderProfileRecord[]>([]);
   const [compatStatus, setCompatStatus] = useState<CompatApiStatus | null>(null);
   const [listenAddress, setListenAddress] = useState("127.0.0.1:8688");
@@ -281,7 +283,7 @@ function Settings() {
         }
       } catch (refreshError) {
         setError(
-          refreshError instanceof Error ? refreshError.message : "Failed to load settings.",
+          refreshError instanceof Error ? refreshError.message : t("error.loadSettings"),
         );
       }
     });
@@ -298,10 +300,10 @@ function Settings() {
         setSuccess(null);
         const status = await startCompatApiServer(listenAddress);
         setCompatStatus(status);
-        setSuccess(`Compat API listening on ${listenAddress}`);
+        setSuccess(t("settings.compatListening", listenAddress));
       } catch (startError) {
         setError(
-          startError instanceof Error ? startError.message : "Failed to start Compat API server.",
+          startError instanceof Error ? startError.message : t("error.startCompat"),
         );
       }
     });
@@ -314,10 +316,10 @@ function Settings() {
         setSuccess(null);
         const status = await stopCompatApiServer();
         setCompatStatus(status);
-        setSuccess("Compat API stopped");
+        setSuccess(t("settings.compatStopped"));
       } catch (stopError) {
         setError(
-          stopError instanceof Error ? stopError.message : "Failed to stop Compat API server.",
+          stopError instanceof Error ? stopError.message : t("error.stopCompat"),
         );
       }
     });
@@ -331,10 +333,10 @@ function Settings() {
         await saveProviderProfile(input);
         setEditingProfile(null);
         refresh();
-        setSuccess(`Saved ${input.displayName}`);
+        setSuccess(t("settings.saved", input.displayName));
       } catch (saveError) {
         setError(
-          saveError instanceof Error ? saveError.message : "Failed to save provider profile.",
+          saveError instanceof Error ? saveError.message : t("error.saveProfile"),
         );
       }
     });
@@ -347,17 +349,17 @@ function Settings() {
         setSuccess(null);
         const inputs = parseBatchProfiles(batchInput);
         if (inputs.length === 0) {
-          throw new Error("Paste a JSON array or JSONL payload first.");
+          throw new Error(t("error.batchEmpty"));
         }
 
         const saved = await saveProviderProfilesBatch(inputs);
         setBatchInput("");
         setEditingProfile(null);
         refresh();
-        setSuccess(`Imported ${saved.length} provider profiles`);
+        setSuccess(t("settings.imported", String(saved.length)));
       } catch (importError) {
         setError(
-          importError instanceof Error ? importError.message : "Failed to import provider profiles.",
+          importError instanceof Error ? importError.message : t("error.importProfiles"),
         );
       }
     });
@@ -378,13 +380,17 @@ function Settings() {
           model: normalizeNullableText(launchForm.model),
         });
         setLaunchResult(result);
-        setSuccess(`Captured ${result.provider} managed launch`);
+        setSuccess(t("settings.captured", result.provider));
       } catch (launchError) {
         setError(
-          launchError instanceof Error ? launchError.message : "Failed to run managed launch.",
+          launchError instanceof Error ? launchError.message : t("error.managedLaunch"),
         );
       }
     });
+  };
+
+  const handleLanguageChange = (lang: Language) => {
+    setLanguage(lang);
   };
 
   return (
@@ -394,12 +400,29 @@ function Settings() {
 
       <section className="settings-block">
         <div className="section-header">
-          <h2>Managed Launch</h2>
+          <h2>{t("language.label")}</h2>
+        </div>
+        <div className="settings-row">
+          <div className="settings-group" style={{ maxWidth: 200 }}>
+            <select
+              value={language}
+              onChange={(e) => handleLanguageChange(e.target.value as Language)}
+            >
+              <option value="en">{t("language.en")}</option>
+              <option value="zh">{t("language.zh")}</option>
+            </select>
+          </div>
+        </div>
+      </section>
+
+      <section className="settings-block">
+        <div className="section-header">
+          <h2>{t("settings.managedLaunch")}</h2>
         </div>
 
         <div className="profile-grid">
           <div className="settings-group">
-            <label htmlFor="launchProvider">Provider</label>
+            <label htmlFor="launchProvider">{t("settings.provider")}</label>
             <select
               id="launchProvider"
               value={launchForm.provider}
@@ -412,69 +435,69 @@ function Settings() {
                 });
               }}
             >
-              <option value="codex">Codex</option>
-              <option value="claude_code">Claude Code</option>
+              <option value="codex">{t("settings.option.codex")}</option>
+              <option value="claude_code">{t("settings.option.claudeCode")}</option>
             </select>
           </div>
 
           <div className="settings-group">
-            <label htmlFor="launchExecutable">Executable</label>
+            <label htmlFor="launchExecutable">{t("settings.executable")}</label>
             <input
               id="launchExecutable"
               type="text"
               value={launchForm.executable}
               onChange={(event) => setLaunchForm({ ...launchForm, executable: event.target.value })}
-              placeholder="codex"
+              placeholder={t("settings.placeholder.executable")}
             />
           </div>
 
           <div className="settings-group full-width">
-            <label htmlFor="launchArgs">Args</label>
+            <label htmlFor="launchArgs">{t("settings.args")}</label>
             <input
               id="launchArgs"
               type="text"
               value={launchArgsText}
               onChange={(event) => setLaunchArgsText(event.target.value)}
-              placeholder='--output-format stream-json -p "Summarize this project"'
+              placeholder={t("settings.placeholder.args")}
             />
           </div>
 
           <div className="settings-group">
-            <label htmlFor="launchCwd">Working Dir</label>
+            <label htmlFor="launchCwd">{t("settings.workingDir")}</label>
             <input
               id="launchCwd"
               type="text"
               value={launchForm.cwd ?? ""}
               onChange={(event) => setLaunchForm({ ...launchForm, cwd: event.target.value })}
-              placeholder="d:\\Projects\\Countdown"
+              placeholder={t("settings.placeholder.cwd")}
             />
           </div>
 
           <div className="settings-group">
-            <label htmlFor="launchModel">Model</label>
+            <label htmlFor="launchModel">{t("settings.model")}</label>
             <input
               id="launchModel"
               type="text"
               value={launchForm.model ?? ""}
               onChange={(event) => setLaunchForm({ ...launchForm, model: event.target.value })}
-              placeholder="optional fallback"
+              placeholder={t("settings.placeholder.model")}
             />
           </div>
 
           <div className="settings-group full-width">
-            <label htmlFor="launchStdin">Stdin</label>
+            <label htmlFor="launchStdin">{t("settings.stdin")}</label>
             <textarea
               id="launchStdin"
               value={launchForm.stdin ?? ""}
               onChange={(event) => setLaunchForm({ ...launchForm, stdin: event.target.value })}
-              placeholder="Optional prompt or JSONL input for a wrapper script"
+              placeholder={t("settings.placeholder.stdin")}
             />
           </div>
         </div>
 
         <div className="settings-actions">
           <button type="button" onClick={handleManagedLaunch} disabled={isPending}>
-            Run & Capture
+            {t("settings.runCapture")}
           </button>
         </div>
 
@@ -483,9 +506,9 @@ function Settings() {
             <span className={`status-pill ${launchResult.status === "completed" ? "running" : "stopped"}`}>
               {launchResult.status}
             </span>
-            <span>{launchResult.inputTokens + launchResult.outputTokens} tokens</span>
-            <span>{launchResult.durationMs} ms</span>
-            <span className="mono">{launchResult.model ?? "model unknown"}</span>
+            <span>{launchResult.inputTokens + launchResult.outputTokens} {t("settings.tokens")}</span>
+            <span>{launchResult.durationMs} {t("settings.ms")}</span>
+            <span className="mono">{launchResult.model ?? t("settings.modelUnknown")}</span>
           </div>
         ) : null}
       </section>
@@ -493,13 +516,13 @@ function Settings() {
       <section className="settings-block">
         <div className="settings-row">
           <div className="settings-group grow">
-            <label htmlFor="listenAddress">Local Compat API</label>
+            <label htmlFor="listenAddress">{t("settings.compatApi")}</label>
             <input
               id="listenAddress"
               type="text"
               value={listenAddress}
               onChange={(e) => setListenAddress(e.target.value)}
-              placeholder="127.0.0.1:8688"
+              placeholder={t("settings.placeholder.listenAddress")}
             />
           </div>
           <div className="settings-actions">
@@ -508,7 +531,7 @@ function Settings() {
               onClick={handleStartServer}
               disabled={isPending || compatStatus?.running}
             >
-              Start
+              {t("settings.start")}
             </button>
             <button
               type="button"
@@ -516,21 +539,21 @@ function Settings() {
               onClick={handleStopServer}
               disabled={isPending || !compatStatus?.running}
             >
-              Stop
+              {t("settings.stop")}
             </button>
             <button type="button" className="secondary" onClick={refresh} disabled={isPending}>
-              Refresh
+              {t("settings.refresh")}
             </button>
           </div>
         </div>
 
         <div className="status-strip">
           <span className={`status-pill ${compatStatus?.running ? "running" : "stopped"}`}>
-            {compatStatus?.running ? "Running" : "Stopped"}
+            {compatStatus?.running ? t("settings.running") : t("settings.stopped")}
           </span>
-          <span>{enabledProfiles.length}/{profiles.length} enabled</span>
-          <span>{openAiProfiles.length} OpenAI-format</span>
-          <span>{anthropicProfiles.length} Anthropic-format</span>
+          <span>{enabledProfiles.length}/{profiles.length} {t("settings.enabled")}</span>
+          <span>{t("settings.openaiFormat", String(openAiProfiles.length))}</span>
+          <span>{t("settings.anthropicFormat", String(anthropicProfiles.length))}</span>
           <span className="mono">{compatStatus?.listenAddress ?? listenAddress}</span>
           {compatStatus?.startedAt ? (
             <span>{new Date(compatStatus.startedAt).toLocaleString()}</span>
@@ -544,10 +567,10 @@ function Settings() {
 
       <section className="settings-block">
         <div className="section-header">
-          <h2>Account / API Pool</h2>
+          <h2>{t("settings.accountPool")}</h2>
           <div className="settings-actions">
             <button type="button" onClick={() => setEditingProfile(createEmptyProfile())}>
-              New
+              {t("settings.new")}
             </button>
           </div>
         </div>
@@ -569,7 +592,7 @@ function Settings() {
           />
           <div className="settings-actions">
             <button type="button" onClick={handleBatchImport} disabled={isPending}>
-              Import Batch
+              {t("settings.importBatch")}
             </button>
           </div>
         </div>
@@ -579,6 +602,7 @@ function Settings() {
             profile={editingProfile}
             onSave={handleSaveProfile}
             onCancel={() => setEditingProfile(null)}
+            t={t}
           />
         ) : null}
 
@@ -586,12 +610,12 @@ function Settings() {
           <table className="profiles-table">
             <thead>
               <tr>
-                <th>Name</th>
-                <th>Format</th>
-                <th>Route</th>
-                <th>Base URL</th>
-                <th>Key Env</th>
-                <th>Status</th>
+                <th>{t("settings.table.name")}</th>
+                <th>{t("settings.table.format")}</th>
+                <th>{t("settings.table.route")}</th>
+                <th>{t("settings.table.baseUrl")}</th>
+                <th>{t("settings.table.keyEnv")}</th>
+                <th>{t("settings.table.status")}</th>
                 <th />
               </tr>
             </thead>
@@ -605,12 +629,12 @@ function Settings() {
                     </div>
                   </td>
                   <td>{formatApiFormat(profile.apiFormat)}</td>
-                  <td>{formatRouteSummary(profile)}</td>
-                  <td className="mono">{profile.baseUrl ?? "default"}</td>
+                  <td>{formatRouteSummary(profile, t)}</td>
+                  <td className="mono">{profile.baseUrl ?? t("settings.defaultRoute")}</td>
                   <td className="mono">{profile.apiKeyEnv ?? "none"}</td>
                   <td>
                     <span className={`status-pill ${profile.enabled ? "running" : "stopped"}`}>
-                      {profile.enabled ? "Enabled" : "Disabled"}
+                      {profile.enabled ? t("settings.enabled2") : t("settings.disabled")}
                     </span>
                   </td>
                   <td className="actions-cell">
@@ -619,14 +643,14 @@ function Settings() {
                       className="secondary"
                       onClick={() => setEditingProfile(createEditableProfile(profile))}
                     >
-                      Edit
+                      {t("settings.edit")}
                     </button>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
-          {profiles.length === 0 ? <p className="empty">No provider profiles.</p> : null}
+          {profiles.length === 0 ? <p className="empty">{t("settings.noProfiles")}</p> : null}
         </div>
       </section>
     </div>
@@ -637,10 +661,12 @@ function ProfileForm({
   profile,
   onSave,
   onCancel,
+  t,
 }: {
   profile: EditableProviderProfile;
   onSave: (input: ProviderProfileUpsertInput) => void;
   onCancel: () => void;
+  t: (key: string, ...args: string[]) => string;
 }) {
   const [form, setForm] = useState(profile);
 
@@ -666,7 +692,7 @@ function ProfileForm({
     <form className="profile-form" onSubmit={handleSubmit}>
       <div className="profile-grid">
         <div className="settings-group">
-          <label htmlFor="displayName">Name</label>
+          <label htmlFor="displayName">{t("settings.form.name")}</label>
           <input
             id="displayName"
             type="text"
@@ -677,7 +703,7 @@ function ProfileForm({
         </div>
 
         <div className="settings-group">
-          <label htmlFor="providerKey">Key</label>
+          <label htmlFor="providerKey">{t("settings.form.key")}</label>
           <input
             id="providerKey"
             type="text"
@@ -688,59 +714,59 @@ function ProfileForm({
         </div>
 
         <div className="settings-group">
-          <label htmlFor="apiFormat">API Format</label>
+          <label htmlFor="apiFormat">{t("settings.form.apiFormat")}</label>
           <select
             id="apiFormat"
             value={form.apiFormat}
             onChange={(e) => setForm({ ...form, apiFormat: e.target.value })}
           >
-            <option value="openai">OpenAI</option>
-            <option value="anthropic">Anthropic</option>
-            <option value="custom">Custom OpenAI-compatible</option>
+            <option value="openai">{t("settings.form.openai")}</option>
+            <option value="anthropic">{t("settings.form.anthropic")}</option>
+            <option value="custom">{t("settings.form.custom")}</option>
           </select>
         </div>
 
         <div className="settings-group">
-          <label htmlFor="apiKeyEnv">Key Env</label>
+          <label htmlFor="apiKeyEnv">{t("settings.form.keyEnv")}</label>
           <input
             id="apiKeyEnv"
             type="text"
             value={form.apiKeyEnv ?? ""}
             onChange={(e) => setForm({ ...form, apiKeyEnv: e.target.value || null })}
-            placeholder="OPENAI_API_KEY"
+            placeholder={t("settings.placeholder.keyEnv")}
           />
         </div>
 
         <div className="settings-group full-width">
-          <label htmlFor="baseUrl">Base URL</label>
+          <label htmlFor="baseUrl">{t("settings.form.baseUrl")}</label>
           <input
             id="baseUrl"
             type="text"
             value={form.baseUrl ?? ""}
             onChange={(e) => setForm({ ...form, baseUrl: e.target.value || null })}
-            placeholder="https://api.openai.com"
+            placeholder={t("settings.placeholder.baseUrl")}
           />
         </div>
 
         <div className="settings-group full-width">
-          <label htmlFor="modelPrefixes">Route Prefixes</label>
+          <label htmlFor="modelPrefixes">{t("settings.form.routePrefixes")}</label>
           <input
             id="modelPrefixes"
             type="text"
             value={form.modelPrefixesText}
             onChange={(e) => setForm({ ...form, modelPrefixesText: e.target.value })}
-            placeholder="gpt-, deepseek-, qwen-, claude-"
+            placeholder={t("settings.placeholder.routePrefixes")}
           />
         </div>
 
         <div className="settings-group full-width">
-          <label htmlFor="models">Exact Model Routes</label>
+          <label htmlFor="models">{t("settings.form.exactModels")}</label>
           <input
             id="models"
             type="text"
             value={form.modelsText}
             onChange={(e) => setForm({ ...form, modelsText: e.target.value })}
-            placeholder="gpt-4.1, claude-3-7-sonnet"
+            placeholder={t("settings.placeholder.exactModels")}
           />
         </div>
       </div>
@@ -751,13 +777,13 @@ function ProfileForm({
           checked={form.enabled}
           onChange={(e) => setForm({ ...form, enabled: e.target.checked })}
         />
-        Enabled
+        {t("settings.form.enabled")}
       </label>
 
       <div className="settings-actions">
-        <button type="submit">Save</button>
+        <button type="submit">{t("settings.form.save")}</button>
         <button type="button" className="secondary" onClick={onCancel}>
-          Cancel
+          {t("settings.form.cancel")}
         </button>
       </div>
     </form>

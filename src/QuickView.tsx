@@ -1,40 +1,59 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useCallback, useState } from "react";
 import { getCombinedTodayUsage, type CombinedTodayUsage } from "./desktop";
+import { useLanguage } from "./i18n";
 import "./QuickView.css";
 
-function formatNumber(value: number | null | undefined) {
-  if (value == null) {
-    return "0";
-  }
+function useFormatNumber() {
+  const { language } = useLanguage();
+  const formatter = useMemo(() => new Intl.NumberFormat(language === "zh" ? "zh-CN" : "en-US"), [language]);
+  return useCallback((value: number | null | undefined) => {
+    if (value == null) {
+      return "0";
+    }
 
-  if (value >= 1_000_000) {
-    return `${(value / 1_000_000).toFixed(1)}M`;
-  }
+    if (value >= 1_000_000) {
+      return `${(value / 1_000_000).toFixed(1)}M`;
+    }
 
-  if (value >= 1_000) {
-    return `${(value / 1_000).toFixed(1)}k`;
-  }
+    if (value >= 1_000) {
+      return `${(value / 1_000).toFixed(1)}k`;
+    }
 
-  return new Intl.NumberFormat("en-US").format(value);
+    return formatter.format(value);
+  }, [formatter]);
 }
 
-function formatClock(value: string | null | undefined) {
-  if (!value) {
-    return "--:--";
-  }
+function useFormatClock() {
+  const { language } = useLanguage();
+  const formatter = useMemo(
+    () =>
+      new Intl.DateTimeFormat(language === "zh" ? "zh-CN" : "en-US", {
+        hour: "2-digit",
+        minute: "2-digit",
+      }),
+    [language],
+  );
+  return useCallback(
+    (value: string | null | undefined) => {
+      if (!value) {
+        return "--:--";
+      }
 
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return "--:--";
-  }
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) {
+        return "--:--";
+      }
 
-  return new Intl.DateTimeFormat("zh-CN", {
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(date);
+      return formatter.format(date);
+    },
+    [formatter],
+  );
 }
 
 function QuickView() {
+  const { t } = useLanguage();
+  const formatNumber = useFormatNumber();
+  const formatClock = useFormatClock();
   const [usage, setUsage] = useState<CombinedTodayUsage | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -45,7 +64,7 @@ function QuickView() {
       setUsage(data);
     } catch (refreshError) {
       setError(
-        refreshError instanceof Error ? refreshError.message : "Failed to load usage data.",
+        refreshError instanceof Error ? refreshError.message : t("error.refreshUsage"),
       );
     }
   };
@@ -83,9 +102,9 @@ function QuickView() {
         <div className="quick-view-header">
           <div className="header-copy">
             <div className="header-meta">
-              <span className="header-kicker">TODAY</span>
+              <span className="header-kicker">{t("quickview.today")}</span>
               <span className="header-refresh">
-                {formatClock(usage?.lastRefreshAt)} 更新
+                {t("quickview.updated", formatClock(usage?.lastRefreshAt))}
               </span>
             </div>
 
@@ -93,14 +112,14 @@ function QuickView() {
               <h1>{usage ? formatNumber(usage.combinedTotalTokens) : "--"}</h1>
               <div className="request-meta">
                 <strong>{usage?.combinedRequestCount ?? "--"}</strong>
-                <span>总请求</span>
+                <span>{t("quickview.totalRequests")}</span>
               </div>
             </div>
 
             <p>
               {usage
-                ? "Claude Code 与 Codex 今日总消耗"
-                : "正在读取本地用量统计"}
+                ? t("quickview.subtitle")
+                : t("quickview.loading")}
             </p>
           </div>
         </div>
@@ -121,11 +140,11 @@ function QuickView() {
 
                   <div className="provider-metrics">
                     <div className="metric">
-                      <span>输入</span>
+                      <span>{t("quickview.metricInput")}</span>
                       <strong>{formatNumber(card.inputTokens)}</strong>
                     </div>
                     <div className="metric">
-                      <span>输出</span>
+                      <span>{t("quickview.metricOutput")}</span>
                       <strong>{formatNumber(card.outputTokens)}</strong>
                     </div>
                   </div>
@@ -134,7 +153,7 @@ function QuickView() {
             </div>
           </div>
         ) : (
-          <div className="loading-state">正在载入今日统计…</div>
+          <div className="loading-state">{t("quickview.loadingStats")}</div>
         )}
       </div>
     </div>
