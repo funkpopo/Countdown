@@ -40,6 +40,76 @@
   background: hsl(var(--card));
 }
 
+.request-summary-panel {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: stretch;
+  gap: 10px;
+  flex-shrink: 0;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius);
+  background: hsl(var(--card));
+}
+
+.request-summary-header {
+  display: flex;
+  align-items: center;
+  padding-right: 2px;
+  color: hsl(var(--muted));
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+}
+
+.request-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(96px, 1fr));
+  gap: 8px;
+  min-width: 0;
+}
+
+.request-summary-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid hsl(var(--border) / 0.5);
+  border-radius: calc(var(--radius) - 2px);
+  background: hsl(var(--background));
+}
+
+.request-summary-item.highlight {
+  border-color: hsl(var(--primary) / 0.32);
+  background: hsl(var(--primary) / 0.08);
+}
+
+.request-summary-item span {
+  min-width: 0;
+  color: hsl(var(--muted));
+  font-size: 0.6875rem;
+  font-weight: 600;
+  line-height: 1.2;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.request-summary-item strong {
+  flex: 0 0 auto;
+  color: hsl(var(--foreground));
+  font-size: 0.9375rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  text-align: right;
+  white-space: nowrap;
+}
+
 .filter-group {
   display: flex;
   flex-direction: column;
@@ -349,6 +419,14 @@
     padding: 10px;
   }
 
+  .request-summary-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .request-summary-grid {
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  }
+
   .requests-table-panel {
     padding: 12px;
   }
@@ -374,6 +452,10 @@
 
   .filters-panel {
     gap: 10px;
+  }
+
+  .request-summary-grid {
+    grid-template-columns: 1fr;
   }
 
   .filter-group {

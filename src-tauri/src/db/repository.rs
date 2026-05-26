@@ -417,6 +417,7 @@ pub fn rebuild_daily_usage_for_provider(
               date,
               provider,
               input_tokens,
+              cached_input_tokens,
               output_tokens,
               total_tokens,
               request_count,
@@ -430,6 +431,7 @@ pub fn rebuild_daily_usage_for_provider(
               DATE(COALESCE(finished_at, started_at), 'localtime') AS usage_date,
               provider,
               COALESCE(SUM(input_tokens), 0),
+              COALESCE(SUM(cached_input_tokens), 0),
               COALESCE(SUM(output_tokens), 0),
               COALESCE(SUM(input_tokens + output_tokens), 0),
               COUNT(*),
@@ -460,6 +462,7 @@ pub fn get_provider_today_usage(
               date,
               provider,
               input_tokens,
+              cached_input_tokens,
               output_tokens,
               total_tokens,
               request_count,
@@ -484,11 +487,19 @@ pub fn get_combined_today_usage(connection: &Connection) -> Result<CombinedToday
     let codex_usage = get_provider_today_usage(connection, "codex")?;
 
     let claude_input = claude_usage.as_ref().map(|u| u.input_tokens).unwrap_or(0);
+    let claude_cached = claude_usage
+        .as_ref()
+        .map(|u| u.cached_input_tokens)
+        .unwrap_or(0);
     let claude_output = claude_usage.as_ref().map(|u| u.output_tokens).unwrap_or(0);
     let claude_total = claude_usage.as_ref().map(|u| u.total_tokens).unwrap_or(0);
     let claude_requests = claude_usage.as_ref().map(|u| u.request_count).unwrap_or(0);
 
     let codex_input = codex_usage.as_ref().map(|u| u.input_tokens).unwrap_or(0);
+    let codex_cached = codex_usage
+        .as_ref()
+        .map(|u| u.cached_input_tokens)
+        .unwrap_or(0);
     let codex_output = codex_usage.as_ref().map(|u| u.output_tokens).unwrap_or(0);
     let codex_total = codex_usage.as_ref().map(|u| u.total_tokens).unwrap_or(0);
     let codex_requests = codex_usage.as_ref().map(|u| u.request_count).unwrap_or(0);
@@ -500,14 +511,17 @@ pub fn get_combined_today_usage(connection: &Connection) -> Result<CombinedToday
     Ok(CombinedTodayUsage {
         date,
         claude_input_tokens: claude_input,
+        claude_cached_input_tokens: claude_cached,
         claude_output_tokens: claude_output,
         claude_total_tokens: claude_total,
         claude_request_count: claude_requests,
         codex_input_tokens: codex_input,
+        codex_cached_input_tokens: codex_cached,
         codex_output_tokens: codex_output,
         codex_total_tokens: codex_total,
         codex_request_count: codex_requests,
         combined_input_tokens: claude_input + codex_input,
+        combined_cached_input_tokens: claude_cached + codex_cached,
         combined_output_tokens: claude_output + codex_output,
         combined_total_tokens: claude_total + codex_total,
         combined_request_count: claude_requests + codex_requests,
@@ -520,11 +534,12 @@ fn get_provider_agg_for_range(
     provider: &str,
     start_date: &str,
     end_date: &str,
-) -> Result<(i64, i64, i64, i64), String> {
+) -> Result<(i64, i64, i64, i64, i64), String> {
     connection
         .query_row(
             "SELECT
                COALESCE(SUM(input_tokens), 0),
+               COALESCE(SUM(cached_input_tokens), 0),
                COALESCE(SUM(output_tokens), 0),
                COALESCE(SUM(total_tokens), 0),
                COALESCE(SUM(request_count), 0)
@@ -537,6 +552,7 @@ fn get_provider_agg_for_range(
                     row.get::<_, i64>(1)?,
                     row.get::<_, i64>(2)?,
                     row.get::<_, i64>(3)?,
+                    row.get::<_, i64>(4)?,
                 ))
             },
         )
@@ -548,22 +564,26 @@ pub fn get_combined_usage_for_range(
     start_date: &str,
     end_date: &str,
 ) -> Result<CombinedUsage, String> {
-    let (ci, co, ct, cr) =
+    let (ci, cc, co, ct, cr) =
         get_provider_agg_for_range(connection, "claude_code", start_date, end_date)?;
-    let (xi, xo, xt, xr) = get_provider_agg_for_range(connection, "codex", start_date, end_date)?;
+    let (xi, xc, xo, xt, xr) =
+        get_provider_agg_for_range(connection, "codex", start_date, end_date)?;
 
     Ok(CombinedUsage {
         start_date: start_date.to_string(),
         end_date: end_date.to_string(),
         claude_input_tokens: ci,
+        claude_cached_input_tokens: cc,
         claude_output_tokens: co,
         claude_total_tokens: ct,
         claude_request_count: cr,
         codex_input_tokens: xi,
+        codex_cached_input_tokens: xc,
         codex_output_tokens: xo,
         codex_total_tokens: xt,
         codex_request_count: xr,
         combined_input_tokens: ci + xi,
+        combined_cached_input_tokens: cc + xc,
         combined_output_tokens: co + xo,
         combined_total_tokens: ct + xt,
         combined_request_count: cr + xr,
@@ -574,12 +594,13 @@ pub fn get_combined_usage_for_range(
 fn get_provider_total_usage(
     connection: &Connection,
     provider: &str,
-) -> Result<(i64, i64, i64), String> {
+) -> Result<(i64, i64, i64, i64), String> {
     connection
         .query_row(
             "
             SELECT
               COALESCE(SUM(input_tokens), 0),
+              COALESCE(SUM(cached_input_tokens), 0),
               COALESCE(SUM(output_tokens), 0),
               COUNT(*)
             FROM request_records
@@ -591,6 +612,7 @@ fn get_provider_total_usage(
                     row.get::<_, i64>(0)?,
                     row.get::<_, i64>(1)?,
                     row.get::<_, i64>(2)?,
+                    row.get::<_, i64>(3)?,
                 ))
             },
         )
@@ -598,8 +620,8 @@ fn get_provider_total_usage(
 }
 
 pub fn get_combined_usage_total(connection: &Connection) -> Result<CombinedUsage, String> {
-    let (ci, co, cr) = get_provider_total_usage(connection, "claude_code")?;
-    let (xi, xo, xr) = get_provider_total_usage(connection, "codex")?;
+    let (ci, cc, co, cr) = get_provider_total_usage(connection, "claude_code")?;
+    let (xi, xc, xo, xr) = get_provider_total_usage(connection, "codex")?;
     let (start_date, end_date) = connection
         .query_row(
             "
@@ -618,14 +640,17 @@ pub fn get_combined_usage_total(connection: &Connection) -> Result<CombinedUsage
         start_date,
         end_date,
         claude_input_tokens: ci,
+        claude_cached_input_tokens: cc,
         claude_output_tokens: co,
         claude_total_tokens: ci + co,
         claude_request_count: cr,
         codex_input_tokens: xi,
+        codex_cached_input_tokens: xc,
         codex_output_tokens: xo,
         codex_total_tokens: xi + xo,
         codex_request_count: xr,
         combined_input_tokens: ci + xi,
+        combined_cached_input_tokens: cc + xc,
         combined_output_tokens: co + xo,
         combined_total_tokens: ci + co + xi + xo,
         combined_request_count: cr + xr,
@@ -678,6 +703,7 @@ pub fn get_usage_histogram(
             {bucket_expr} AS bucket,
             provider,
             input_tokens,
+            cached_input_tokens,
             output_tokens
           FROM request_records
           WHERE provider IN ('claude_code', 'codex') AND {where_sql}
@@ -685,9 +711,11 @@ pub fn get_usage_histogram(
         SELECT
           buckets.bucket,
           COALESCE(SUM(CASE WHEN usage.provider = 'claude_code' THEN usage.input_tokens ELSE 0 END), 0),
+          COALESCE(SUM(CASE WHEN usage.provider = 'claude_code' THEN usage.cached_input_tokens ELSE 0 END), 0),
           COALESCE(SUM(CASE WHEN usage.provider = 'claude_code' THEN usage.output_tokens ELSE 0 END), 0),
           COALESCE(SUM(CASE WHEN usage.provider = 'claude_code' THEN 1 ELSE 0 END), 0),
           COALESCE(SUM(CASE WHEN usage.provider = 'codex' THEN usage.input_tokens ELSE 0 END), 0),
+          COALESCE(SUM(CASE WHEN usage.provider = 'codex' THEN usage.cached_input_tokens ELSE 0 END), 0),
           COALESCE(SUM(CASE WHEN usage.provider = 'codex' THEN usage.output_tokens ELSE 0 END), 0),
           COALESCE(SUM(CASE WHEN usage.provider = 'codex' THEN 1 ELSE 0 END), 0)
         FROM buckets
@@ -704,23 +732,28 @@ pub fn get_usage_histogram(
         .query_map([], |row| {
             let bucket: String = row.get(0)?;
             let ci: i64 = row.get(1)?;
-            let co: i64 = row.get(2)?;
-            let cr: i64 = row.get(3)?;
-            let xi: i64 = row.get(4)?;
-            let xo: i64 = row.get(5)?;
-            let xr: i64 = row.get(6)?;
+            let cc: i64 = row.get(2)?;
+            let co: i64 = row.get(3)?;
+            let cr: i64 = row.get(4)?;
+            let xi: i64 = row.get(5)?;
+            let xc: i64 = row.get(6)?;
+            let xo: i64 = row.get(7)?;
+            let xr: i64 = row.get(8)?;
             Ok(UsageHistogramBucket {
                 label: bucket.clone(),
                 bucket,
                 claude_input_tokens: ci,
+                claude_cached_input_tokens: cc,
                 claude_output_tokens: co,
                 claude_total_tokens: ci + co,
                 claude_request_count: cr,
                 codex_input_tokens: xi,
+                codex_cached_input_tokens: xc,
                 codex_output_tokens: xo,
                 codex_total_tokens: xi + xo,
                 codex_request_count: xr,
                 combined_input_tokens: ci + xi,
+                combined_cached_input_tokens: cc + xc,
                 combined_output_tokens: co + xo,
                 combined_total_tokens: ci + co + xi + xo,
                 combined_request_count: cr + xr,
@@ -813,14 +846,15 @@ fn map_daily_usage_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<DailyUsageRe
         date: row.get(0)?,
         provider: row.get(1)?,
         input_tokens: row.get(2)?,
-        output_tokens: row.get(3)?,
-        total_tokens: row.get(4)?,
-        request_count: row.get(5)?,
-        stream_count: row.get(6)?,
-        non_stream_count: row.get(7)?,
-        avg_ttft_ms: row.get(8)?,
-        avg_duration_ms: row.get(9)?,
-        updated_at: row.get(10)?,
+        cached_input_tokens: row.get(3)?,
+        output_tokens: row.get(4)?,
+        total_tokens: row.get(5)?,
+        request_count: row.get(6)?,
+        stream_count: row.get(7)?,
+        non_stream_count: row.get(8)?,
+        avg_ttft_ms: row.get(9)?,
+        avg_duration_ms: row.get(10)?,
+        updated_at: row.get(11)?,
     })
 }
 
@@ -901,13 +935,39 @@ pub fn list_filtered_request_records(
         format!("WHERE {}", where_clauses.join(" AND "))
     };
 
-    let count_sql = format!("SELECT COUNT(*) FROM request_records rr {}", where_sql);
+    let summary_sql = format!(
+        "
+        SELECT
+          COUNT(*),
+          COALESCE(SUM(rr.input_tokens), 0),
+          COALESCE(SUM(rr.cached_input_tokens), 0),
+          COALESCE(SUM(rr.output_tokens), 0),
+          COALESCE(SUM(rr.reasoning_tokens), 0)
+        FROM request_records rr
+        {}
+        ",
+        where_sql
+    );
 
-    let total: i64 = connection
+    let (
+        total,
+        total_input_tokens,
+        total_cached_input_tokens,
+        total_output_tokens,
+        total_reasoning_tokens,
+    ): (i64, i64, i64, i64, i64) = connection
         .query_row(
-            &count_sql,
+            &summary_sql,
             rusqlite::params_from_iter(param_values.iter().map(|v| v.as_ref())),
-            |row| row.get(0),
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                ))
+            },
         )
         .map_err(|error| error.to_string())?;
 
@@ -967,6 +1027,10 @@ pub fn list_filtered_request_records(
     Ok(PaginatedRequestRecords {
         records,
         total,
+        total_input_tokens,
+        total_cached_input_tokens,
+        total_output_tokens,
+        total_reasoning_tokens,
         limit,
         offset,
     })

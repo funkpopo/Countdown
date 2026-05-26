@@ -358,6 +358,36 @@ function Requests() {
         </div>
       </section>
 
+      {data ? (
+        <section className="request-summary-panel" aria-label={t("requests.summary.title")}>
+          <div className="request-summary-header">
+            <span>{t("requests.summary.title")}</span>
+          </div>
+          <div className="request-summary-grid">
+            <div className="request-summary-item">
+              <span>{t("requests.summary.records")}</span>
+              <strong>{formatNumber(data.total)}</strong>
+            </div>
+            <div className="request-summary-item">
+              <span>{t("requests.summary.input")}</span>
+              <strong>{formatNumber(data.totalInputTokens)}</strong>
+            </div>
+            <div className="request-summary-item highlight">
+              <span>{t("requests.summary.cached")}</span>
+              <strong>{formatNumber(data.totalCachedInputTokens)}</strong>
+            </div>
+            <div className="request-summary-item">
+              <span>{t("requests.summary.output")}</span>
+              <strong>{formatNumber(data.totalOutputTokens)}</strong>
+            </div>
+            <div className="request-summary-item">
+              <span>{t("requests.summary.reasoning")}</span>
+              <strong>{formatNumber(data.totalReasoningTokens)}</strong>
+            </div>
+          </div>
+        </section>
+      ) : null}
+
       <section className="requests-table-panel">
         {data?.records.length ? (
           <>

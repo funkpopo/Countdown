@@ -6,10 +6,11 @@ struct Migration {
     sql: &'static str,
 }
 
-const MIGRATIONS: &[Migration] = &[Migration {
-    version: 1,
-    name: "phase2_initial_schema",
-    sql: "
+const MIGRATIONS: &[Migration] = &[
+    Migration {
+        version: 1,
+        name: "phase2_initial_schema",
+        sql: "
         CREATE TABLE IF NOT EXISTS app_metadata (
           key TEXT PRIMARY KEY NOT NULL,
           value TEXT NOT NULL
@@ -100,7 +101,24 @@ const MIGRATIONS: &[Migration] = &[Migration {
         CREATE INDEX IF NOT EXISTS idx_daily_usage_provider_date
           ON daily_usage(provider, date DESC);
     ",
-}];
+    },
+    Migration {
+        version: 2,
+        name: "add_daily_usage_cached_input_tokens",
+        sql: "
+        ALTER TABLE daily_usage
+          ADD COLUMN cached_input_tokens INTEGER NOT NULL DEFAULT 0;
+
+        UPDATE daily_usage
+        SET cached_input_tokens = (
+          SELECT COALESCE(SUM(rr.cached_input_tokens), 0)
+          FROM request_records rr
+          WHERE rr.provider = daily_usage.provider
+            AND DATE(COALESCE(rr.finished_at, rr.started_at), 'localtime') = daily_usage.date
+        );
+    ",
+    },
+];
 
 pub fn apply_migrations(connection: &Connection) -> Result<(), String> {
     connection

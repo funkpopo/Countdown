@@ -50,27 +50,27 @@ async fn run_once(
     let app_for_sync = app.clone();
     let previous_fingerprint = last_fingerprint.clone();
     let started = Instant::now();
-        let result = tauri::async_runtime::spawn_blocking(move || {
-            let current_fingerprint = source_fingerprint()?;
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        let current_fingerprint = source_fingerprint()?;
 
-            if !force && previous_fingerprint.as_ref() == Some(&current_fingerprint) {
-                return Ok::<_, String>(SyncTickResult::Unchanged(current_fingerprint));
-            }
+        if !force && previous_fingerprint.as_ref() == Some(&current_fingerprint) {
+            return Ok::<_, String>(SyncTickResult::Unchanged(current_fingerprint));
+        }
 
-            db::initialize(&app_for_sync)?;
-            let (codex, claude) = db::sync_all_sessions(&app_for_sync)?;
+        db::initialize(&app_for_sync)?;
+        let (codex, claude) = db::sync_all_sessions(&app_for_sync)?;
 
-            Ok::<_, String>(SyncTickResult::Synced {
-                fingerprint: current_fingerprint,
-                payload: json!({
-                    "codexImportedRequests": codex.imported_requests,
-                    "claudeImportedRequests": claude.imported_requests,
-                    "codexRequestCount": codex.request_count,
-                    "claudeRequestCount": claude.request_count,
-                    "syncedAt": chrono::Utc::now().to_rfc3339(),
-                }),
-            })
+        Ok::<_, String>(SyncTickResult::Synced {
+            fingerprint: current_fingerprint,
+            payload: json!({
+                "codexImportedRequests": codex.imported_requests,
+                "claudeImportedRequests": claude.imported_requests,
+                "codexRequestCount": codex.request_count,
+                "claudeRequestCount": claude.request_count,
+                "syncedAt": chrono::Utc::now().to_rfc3339(),
+            }),
         })
+    })
     .await
     .map_err(|error| error.to_string())
     .and_then(|result| result);

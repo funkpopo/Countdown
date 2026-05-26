@@ -72,6 +72,7 @@ export type DailyUsageRecord = {
   date: string;
   provider: string;
   inputTokens: number;
+  cachedInputTokens: number;
   outputTokens: number;
   totalTokens: number;
   requestCount: number;
@@ -140,6 +141,10 @@ export type RequestFilterInput = {
 export type PaginatedRequestRecords = {
   records: RequestRecordListItem[];
   total: number;
+  totalInputTokens: number;
+  totalCachedInputTokens: number;
+  totalOutputTokens: number;
+  totalReasoningTokens: number;
   limit: number;
   offset: number;
 };
@@ -165,14 +170,17 @@ export type ClaudeOverview = {
 export type CombinedTodayUsage = {
   date: string;
   claudeInputTokens: number;
+  claudeCachedInputTokens: number;
   claudeOutputTokens: number;
   claudeTotalTokens: number;
   claudeRequestCount: number;
   codexInputTokens: number;
+  codexCachedInputTokens: number;
   codexOutputTokens: number;
   codexTotalTokens: number;
   codexRequestCount: number;
   combinedInputTokens: number;
+  combinedCachedInputTokens: number;
   combinedOutputTokens: number;
   combinedTotalTokens: number;
   combinedRequestCount: number;
@@ -188,14 +196,17 @@ export type CombinedUsage = {
   startDate: string;
   endDate: string;
   claudeInputTokens: number;
+  claudeCachedInputTokens: number;
   claudeOutputTokens: number;
   claudeTotalTokens: number;
   claudeRequestCount: number;
   codexInputTokens: number;
+  codexCachedInputTokens: number;
   codexOutputTokens: number;
   codexTotalTokens: number;
   codexRequestCount: number;
   combinedInputTokens: number;
+  combinedCachedInputTokens: number;
   combinedOutputTokens: number;
   combinedTotalTokens: number;
   combinedRequestCount: number;
@@ -211,14 +222,17 @@ export type UsageHistogramBucket = {
   bucket: string;
   label: string;
   claudeInputTokens: number;
+  claudeCachedInputTokens: number;
   claudeOutputTokens: number;
   claudeTotalTokens: number;
   claudeRequestCount: number;
   codexInputTokens: number;
+  codexCachedInputTokens: number;
   codexOutputTokens: number;
   codexTotalTokens: number;
   codexRequestCount: number;
   combinedInputTokens: number;
+  combinedCachedInputTokens: number;
   combinedOutputTokens: number;
   combinedTotalTokens: number;
   combinedRequestCount: number;

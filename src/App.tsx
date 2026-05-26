@@ -92,7 +92,7 @@ function ChevronLeftIcon() {
 }
 
 type Period = "today" | "week" | "month" | "total";
-type HistogramMetric = "tokens" | "requests";
+type HistogramMetric = "tokens" | "cached" | "requests";
 const OVERVIEW_RECENT_PAGE_SIZE = 10;
 
 function getDateRangeForPeriod(period: Period): { startDate: string; endDate: string } {
@@ -250,6 +250,7 @@ const OverviewPage = memo(function OverviewPage({
           </div>
           <div className="stats">
             {renderUsageStat(t("stat.input"), formatNumber(periodUsage?.codexInputTokens))}
+            {renderUsageStat(t("stat.cached"), formatNumber(periodUsage?.codexCachedInputTokens))}
             {renderUsageStat(t("stat.output"), formatNumber(periodUsage?.codexOutputTokens))}
             {renderUsageStat(t("stat.total"), formatNumber(periodUsage?.codexTotalTokens))}
             {renderUsageStat(t("stat.requests"), formatNumber(periodUsage?.codexRequestCount))}
@@ -267,6 +268,7 @@ const OverviewPage = memo(function OverviewPage({
           </div>
           <div className="stats">
             {renderUsageStat(t("stat.input"), formatNumber(periodUsage?.claudeInputTokens))}
+            {renderUsageStat(t("stat.cached"), formatNumber(periodUsage?.claudeCachedInputTokens))}
             {renderUsageStat(t("stat.output"), formatNumber(periodUsage?.claudeOutputTokens))}
             {renderUsageStat(t("stat.total"), formatNumber(periodUsage?.claudeTotalTokens))}
             {renderUsageStat(t("stat.requests"), formatNumber(periodUsage?.claudeRequestCount))}
@@ -339,11 +341,17 @@ const UsageHistogramPanel = memo(function UsageHistogramPanel({
   const { t } = useLanguage();
   const formatNumber = useFormatNumber();
   const buckets = histogram?.buckets ?? [];
+  const getBucketValue = useCallback(
+    (bucket: UsageHistogram["buckets"][number]) => {
+      if (metric === "tokens") return bucket.combinedTotalTokens;
+      if (metric === "cached") return bucket.combinedCachedInputTokens;
+      return bucket.combinedRequestCount;
+    },
+    [metric],
+  );
   const maxValue = Math.max(
     1,
-    ...buckets.map((bucket) =>
-      metric === "tokens" ? bucket.combinedTotalTokens : bucket.combinedRequestCount,
-    ),
+    ...buckets.map(getBucketValue),
   );
   const handleWheel = useCallback((event: React.WheelEvent<HTMLDivElement>) => {
     const element = event.currentTarget;
@@ -359,7 +367,7 @@ const UsageHistogramPanel = memo(function UsageHistogramPanel({
       <div className="card-header">
         <h2>{t("histogram.title")}</h2>
         <div className="segmented-control">
-          {(["tokens", "requests"] as const).map((item) => (
+          {(["tokens", "cached", "requests"] as const).map((item) => (
             <button
               key={item}
               type="button"
@@ -377,8 +385,7 @@ const UsageHistogramPanel = memo(function UsageHistogramPanel({
           onWheel={handleWheel}
         >
           {buckets.map((bucket) => {
-            const value =
-              metric === "tokens" ? bucket.combinedTotalTokens : bucket.combinedRequestCount;
+            const value = getBucketValue(bucket);
             return (
               <div className="histogram-bar" key={bucket.bucket}>
                 <div className="histogram-track">

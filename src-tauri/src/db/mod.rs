@@ -119,11 +119,6 @@ pub fn delete_provider_profile(app: &AppHandle, id: String) -> Result<(), String
     repository::delete_provider_profile(&connection, &id)
 }
 
-pub fn sync_codex_sessions(app: &AppHandle) -> Result<CodexSyncSummary, String> {
-    let mut connection = open_connection(app)?;
-    CollectorManager::sync_codex_sessions(&mut connection)
-}
-
 pub fn run_managed_launch(
     app: &AppHandle,
     input: ManagedLaunchInput,
@@ -135,11 +130,6 @@ pub fn run_managed_launch(
 pub fn codex_overview(app: &AppHandle) -> Result<CodexOverview, String> {
     let connection = open_connection(app)?;
     CollectorManager::get_codex_overview(&connection)
-}
-
-pub fn sync_claude_code_sessions(app: &AppHandle) -> Result<ClaudeCodeSyncSummary, String> {
-    let mut connection = open_connection(app)?;
-    CollectorManager::sync_claude_code_sessions(&mut connection)
 }
 
 pub fn sync_all_sessions(
