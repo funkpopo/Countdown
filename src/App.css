@@ -317,13 +317,22 @@ label {
 .page {
   max-width: 1240px;
   margin: 0 auto;
-  padding: 20px 24px 0;
+  padding: 20px 24px;
   width: 100%;
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.page-sticky {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: hsl(var(--background));
+  padding-bottom: 10px;
 }
 
 .page-header {
@@ -449,13 +458,9 @@ label {
 /* ─── Grid ─── */
 
 .grid {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
-  padding-bottom: 20px;
   align-content: start;
 }
 
@@ -509,27 +514,36 @@ label {
 }
 
 .stat {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   padding: 10px;
   border: 1px solid hsl(var(--border) / 0.5);
   border-radius: calc(var(--radius) - 2px);
   background: hsl(var(--background));
+  min-width: 0;
 }
 
 .stat span {
-  display: block;
-  margin-bottom: 3px;
   color: hsl(var(--muted));
   font-size: 0.6875rem;
   font-weight: 500;
   text-transform: uppercase;
   letter-spacing: 0.06em;
+  line-height: 1.2;
+  min-width: 0;
 }
 
 .stat strong {
+  flex: 0 0 auto;
   font-size: 1.0625rem;
   font-weight: 700;
   color: hsl(var(--foreground));
   font-variant-numeric: tabular-nums;
+  line-height: 1;
+  text-align: right;
+  white-space: nowrap;
 }
 
 .histogram-card {
@@ -602,9 +616,18 @@ label {
 }
 
 .recent-table-container {
+  position: relative;
   max-height: min(360px, 40vh);
   min-height: 0;
   overscroll-behavior: contain;
+}
+
+.recent-table-container.refreshing::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: hsl(var(--card) / 0.08);
+  pointer-events: none;
 }
 
 .data-table {
@@ -661,6 +684,22 @@ label {
   padding: 12px;
 }
 
+.table-refresh-indicator {
+  position: sticky;
+  right: 12px;
+  bottom: 12px;
+  margin-left: auto;
+  width: fit-content;
+  padding: 4px 8px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 999px;
+  background: hsl(var(--card) / 0.92);
+  color: hsl(var(--muted));
+  font-size: 0.75rem;
+  line-height: 1;
+  pointer-events: none;
+}
+
 .recent-pagination {
   display: flex;
   align-items: center;
@@ -704,24 +743,42 @@ label {
   gap: 10px;
 }
 
+.storage-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
 .table-card {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   padding: 12px;
   border: 1px solid hsl(var(--border) / 0.5);
   border-radius: calc(var(--radius) - 2px);
   background: hsl(var(--background));
+  min-width: 0;
 }
 
 .table-card strong {
+  min-width: 0;
   color: hsl(var(--foreground));
   font-size: 0.875rem;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .table-card span {
+  flex: 0 0 auto;
   color: hsl(var(--muted));
   font-size: 0.8125rem;
+  line-height: 1;
+  white-space: nowrap;
+  text-align: right;
 }
 
 .primary-cell {
@@ -749,7 +806,7 @@ label {
   }
 
   .page {
-    padding: 20px 16px 0;
+    padding: 20px 16px;
   }
 
   .page-header {
@@ -782,7 +839,7 @@ label {
 
 @media (max-width: 720px), (max-height: 720px) {
   .page {
-    padding: 12px 10px 0;
+    padding: 12px 10px;
   }
 
   .page-header {
@@ -813,6 +870,15 @@ label {
 
   .card {
     padding: 12px;
+  }
+
+  .stat {
+    gap: 10px;
+    padding: 9px 10px;
+  }
+
+  .stat strong {
+    font-size: 1rem;
   }
 
   .card-header {

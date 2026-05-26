@@ -1,4 +1,4 @@
-import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useState, useTransition } from "react";
+import { lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition } from "react";
 import { listen } from "@tauri-apps/api/event";
 import {
   getClaudeCodeOverview,
@@ -161,56 +161,83 @@ const OverviewPage = memo(function OverviewPage({
   const { t } = useLanguage();
   const formatNumber = useFormatNumber();
   const formatMs = useFormatMs();
+  const pageRef = useRef<HTMLDivElement | null>(null);
+  const scrollTopRef = useRef(0);
+  const hasRestoredScrollRef = useRef(false);
 
   const codexTodayUsage: DailyUsageRecord | null = codexOverview?.todayUsage ?? null;
   const claudeTodayUsage: DailyUsageRecord | null = claudeOverview?.todayUsage ?? null;
+  const tables = databaseSummary?.tables ?? [];
+  const hasTables = tables.length > 0;
+
+  useLayoutEffect(() => {
+    if (!hasRestoredScrollRef.current) {
+      hasRestoredScrollRef.current = true;
+      return;
+    }
+
+    const page = pageRef.current;
+    if (!page) {
+      return;
+    }
+
+    page.scrollTop = scrollTopRef.current;
+  }, [refreshToken]);
 
   return (
-    <div className="page">
-      <div className="page-header">
-        <div>
-          <h1>{t("overview.title")}</h1>
-          <p className="page-meta">
-            {t("overview.meta",
-              formatNumber(databaseSummary?.providerProfiles.length),
-              formatNumber(codexOverview?.requestCount),
-              formatNumber(claudeOverview?.requestCount))}
-          </p>
+    <div
+      ref={pageRef}
+      className="page"
+      onScroll={(event) => {
+        scrollTopRef.current = event.currentTarget.scrollTop;
+      }}
+    >
+      <div className="page-sticky">
+        <div className="page-header">
+          <div>
+            <h1>{t("overview.title")}</h1>
+            <p className="page-meta">
+              {t("overview.meta",
+                formatNumber(databaseSummary?.providerProfiles.length),
+                formatNumber(codexOverview?.requestCount),
+                formatNumber(claudeOverview?.requestCount))}
+            </p>
+          </div>
+          <div className="actions">
+            <button type="button" onClick={onRefresh} disabled={isPending}>
+              {t("overview.refresh")}
+            </button>
+            <button
+              type="button"
+              className="ghost"
+              onClick={onInitializeDatabase}
+              disabled={isPending}
+            >
+              {t("overview.initDb")}
+            </button>
+          </div>
         </div>
-        <div className="actions">
-          <button type="button" onClick={onRefresh} disabled={isPending}>
-            {t("overview.refresh")}
-          </button>
-          <button
-            type="button"
-            className="ghost"
-            onClick={onInitializeDatabase}
-            disabled={isPending}
-          >
-            {t("overview.initDb")}
-          </button>
+
+        {error ? <div className="notice error">{error}</div> : null}
+
+        <div className="period-tabs">
+          {(["today", "week", "month", "total"] as const).map((p) => (
+            <button
+              key={p}
+              className={"period-tab" + (period === p ? " active" : "")}
+              onClick={() => onPeriodChange(p)}
+            >
+              {t(`tab.${p}`)}
+            </button>
+          ))}
+          <span className="period-range">
+            {period === "total"
+              ? t("tab.total.range")
+              : periodUsage
+                ? `${periodUsage.startDate} ~ ${periodUsage.endDate}`
+                : "..."}
+          </span>
         </div>
-      </div>
-
-      {error ? <div className="notice error">{error}</div> : null}
-
-      <div className="period-tabs">
-        {(["today", "week", "month", "total"] as const).map((p) => (
-          <button
-            key={p}
-            className={"period-tab" + (period === p ? " active" : "")}
-            onClick={() => onPeriodChange(p)}
-          >
-            {t(`tab.${p}`)}
-          </button>
-        ))}
-        <span className="period-range">
-          {period === "total"
-            ? t("tab.total.range")
-            : periodUsage
-              ? `${periodUsage.startDate} ~ ${periodUsage.endDate}`
-              : "..."}
-        </span>
       </div>
 
       <div className="grid">
@@ -277,15 +304,22 @@ const OverviewPage = memo(function OverviewPage({
         <div className="card wide">
           <div className="card-header">
             <h2>{t("storage.title")}</h2>
-            <span className="card-meta">{t("storage.tables", formatNumber(databaseSummary?.tables.length))}</span>
+            <span className="card-meta">{t("storage.tables", formatNumber(tables.length))}</span>
+          </div>
+          <div className="storage-summary">
+            {renderUsageStat(
+              t("storage.initializedAt"),
+              databaseSummary?.initializedAt ? formatDate(databaseSummary.initializedAt) : t("n/a"),
+            )}
+            {renderUsageStat(t("storage.profiles"), formatNumber(databaseSummary?.providerProfiles.length))}
           </div>
           <div className="table-grid">
-            {databaseSummary?.tables.map((table) => (
+            {hasTables ? tables.map((table) => (
               <div key={table.tableName} className="table-card">
                 <strong>{table.tableName}</strong>
                 <span>{formatNumber(table.rowCount)} {t("storage.rows")}</span>
               </div>
-            )) ?? <p className="empty">{t("storage.waiting")}</p>}
+            )) : <p className="empty">{databaseSummary ? t("storage.empty") : t("storage.waiting")}</p>}
           </div>
         </div>
       </div>
@@ -387,6 +421,7 @@ const RecentRequestsPanel = memo(function RecentRequestsPanel({
 }) {
   const { t } = useLanguage();
   const formatNumber = useFormatNumber();
+  const tableContainerRef = useRef<HTMLDivElement | null>(null);
   const [pageIndex, setPageIndex] = useState(0);
   const [records, setRecords] = useState<RequestRecordListItem[]>([]);
   const [total, setTotal] = useState(0);
@@ -395,7 +430,7 @@ const RecentRequestsPanel = memo(function RecentRequestsPanel({
 
   useEffect(() => {
     setPageIndex(0);
-  }, [provider, refreshToken]);
+  }, [provider]);
 
   useEffect(() => {
     if (!ready) return;
@@ -416,8 +451,6 @@ const RecentRequestsPanel = memo(function RecentRequestsPanel({
       })
       .catch(() => {
         if (disposed) return;
-        setRecords([]);
-        setTotal(0);
         setPanelError(t("error.loadRequests"));
       })
       .finally(() => {
@@ -435,7 +468,12 @@ const RecentRequestsPanel = memo(function RecentRequestsPanel({
   const end = total === 0 ? 0 : pageIndex * OVERVIEW_RECENT_PAGE_SIZE + records.length;
   const hasPreviousPage = pageIndex > 0;
   const hasNextPage = (pageIndex + 1) * OVERVIEW_RECENT_PAGE_SIZE < total;
-  const showLoadingState = !ready || isLoading;
+  const hasRecords = records.length > 0;
+  const showLoadingState = !ready || (!hasRecords && isLoading);
+  const changePage = (nextPageIndex: number) => {
+    tableContainerRef.current?.scrollTo({ top: 0, left: 0, behavior: "auto" });
+    setPageIndex(nextPageIndex);
+  };
 
   return (
     <div className="card wide recent-requests-card">
@@ -446,8 +484,11 @@ const RecentRequestsPanel = memo(function RecentRequestsPanel({
       {panelError ? <div className="notice error">{panelError}</div> : null}
       {showLoadingState ? (
         <div className="recent-table-state">{t("loading.requests")}</div>
-      ) : records.length ? (
-        <div className="table-container recent-table-container">
+      ) : hasRecords ? (
+        <div
+          ref={tableContainerRef}
+          className={"table-container recent-table-container" + (isLoading ? " refreshing" : "")}
+        >
           <table className="data-table">
             <thead>
               <tr>
@@ -485,6 +526,7 @@ const RecentRequestsPanel = memo(function RecentRequestsPanel({
               ))}
             </tbody>
           </table>
+          {isLoading ? <div className="table-refresh-indicator">{t("loading.requests")}</div> : null}
         </div>
       ) : (
         <div className="recent-table-state">
@@ -495,7 +537,7 @@ const RecentRequestsPanel = memo(function RecentRequestsPanel({
         <button
           type="button"
           className="ghost"
-          onClick={() => setPageIndex((current) => current - 1)}
+          onClick={() => changePage(pageIndex - 1)}
           disabled={showLoadingState || !hasPreviousPage}
         >
           {t("pagination.previous")}
@@ -506,7 +548,7 @@ const RecentRequestsPanel = memo(function RecentRequestsPanel({
         <button
           type="button"
           className="ghost"
-          onClick={() => setPageIndex((current) => current + 1)}
+          onClick={() => changePage(pageIndex + 1)}
           disabled={showLoadingState || !hasNextPage}
         >
           {t("pagination.next")}

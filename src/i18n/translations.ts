@@ -55,7 +55,10 @@ export const translations: Record<Language, Translations> = {
     "storage.title": "Storage",
     "storage.tables": (n) => `${n} tables`,
     "storage.waiting": "Waiting for schema summary...",
+    "storage.empty": "No table stats available yet.",
     "storage.rows": "rows",
+    "storage.initializedAt": "Initialized At",
+    "storage.profiles": "Profiles",
 
     /* Table headers */
     "th.request": "Request",
@@ -270,8 +273,11 @@ export const translations: Record<Language, Translations> = {
     /* Storage card */
     "storage.title": "存储",
     "storage.tables": (n) => `${n} 个表`,
-    "storage.waiting": "等待模式概要...",
+    "storage.waiting": "等待存储概要...",
+    "storage.empty": "暂无表统计信息。",
     "storage.rows": "行",
+    "storage.initializedAt": "初始化时间",
+    "storage.profiles": "配置数",
 
     /* Table headers */
     "th.request": "请求",
