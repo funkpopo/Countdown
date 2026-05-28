@@ -161,6 +161,7 @@ pub async fn start_compat_api_server(
             return Ok(server.get_status().await);
         }
 
+        server.set_listen_address(listen_address).await?;
         server.start().await?;
         return Ok(server.get_status().await);
     }

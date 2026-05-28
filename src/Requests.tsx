@@ -51,6 +51,14 @@ function formatDateTime(value: string | null | undefined) {
   });
 }
 
+function formatJsonSummary(value: string) {
+  try {
+    return JSON.stringify(JSON.parse(value), null, 2);
+  } catch {
+    return value;
+  }
+}
+
 function RequestDetailDrawer({
   detail,
   onClose,
@@ -176,18 +184,14 @@ function RequestDetailDrawer({
           {detail.requestSummaryJson ? (
             <section className="detail-section">
               <h3>{t("detail.requestSummary")}</h3>
-              <pre className="json-block">
-                {JSON.stringify(JSON.parse(detail.requestSummaryJson), null, 2)}
-              </pre>
+              <pre className="json-block">{formatJsonSummary(detail.requestSummaryJson)}</pre>
             </section>
           ) : null}
 
           {detail.responseSummaryJson ? (
             <section className="detail-section">
               <h3>{t("detail.responseSummary")}</h3>
-              <pre className="json-block">
-                {JSON.stringify(JSON.parse(detail.responseSummaryJson), null, 2)}
-              </pre>
+              <pre className="json-block">{formatJsonSummary(detail.responseSummaryJson)}</pre>
             </section>
           ) : null}
 

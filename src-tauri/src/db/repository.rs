@@ -22,6 +22,9 @@ const REQUEST_RECORDS_RECENT_ORDER: &str = "
     rr.updated_at DESC
 ";
 
+const COMBINED_USAGE_PROVIDERS_SQL: &str =
+    "'claude_code', 'codex', 'openai_compat', 'anthropic_compat'";
+
 pub fn get_database_summary(connection: &Connection) -> Result<DatabaseSummary, String> {
     let schema_version = connection
         .query_row(
@@ -485,6 +488,8 @@ pub fn get_provider_today_usage(
 pub fn get_combined_today_usage(connection: &Connection) -> Result<CombinedTodayUsage, String> {
     let claude_usage = get_provider_today_usage(connection, "claude_code")?;
     let codex_usage = get_provider_today_usage(connection, "codex")?;
+    let (all_input, all_cached, all_output, all_total, all_requests) =
+        get_combined_provider_today_usage(connection)?;
 
     let claude_input = claude_usage.as_ref().map(|u| u.input_tokens).unwrap_or(0);
     let claude_cached = claude_usage
@@ -520,13 +525,43 @@ pub fn get_combined_today_usage(connection: &Connection) -> Result<CombinedToday
         codex_output_tokens: codex_output,
         codex_total_tokens: codex_total,
         codex_request_count: codex_requests,
-        combined_input_tokens: claude_input + codex_input,
-        combined_cached_input_tokens: claude_cached + codex_cached,
-        combined_output_tokens: claude_output + codex_output,
-        combined_total_tokens: claude_total + codex_total,
-        combined_request_count: claude_requests + codex_requests,
+        combined_input_tokens: all_input,
+        combined_cached_input_tokens: all_cached,
+        combined_output_tokens: all_output,
+        combined_total_tokens: all_total,
+        combined_request_count: all_requests,
         last_refresh_at,
     })
+}
+
+fn get_combined_provider_today_usage(
+    connection: &Connection,
+) -> Result<(i64, i64, i64, i64, i64), String> {
+    let sql = format!(
+        "
+        SELECT
+          COALESCE(SUM(input_tokens), 0),
+          COALESCE(SUM(cached_input_tokens), 0),
+          COALESCE(SUM(output_tokens), 0),
+          COALESCE(SUM(total_tokens), 0),
+          COALESCE(SUM(request_count), 0)
+        FROM daily_usage
+        WHERE provider IN ({COMBINED_USAGE_PROVIDERS_SQL})
+          AND date = DATE('now', 'localtime')
+        "
+    );
+
+    connection
+        .query_row(&sql, [], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, i64>(2)?,
+                row.get::<_, i64>(3)?,
+                row.get::<_, i64>(4)?,
+            ))
+        })
+        .map_err(|error| error.to_string())
 }
 
 fn get_provider_agg_for_range(
@@ -559,6 +594,35 @@ fn get_provider_agg_for_range(
         .map_err(|error| error.to_string())
 }
 
+fn get_combined_provider_agg_for_range(
+    connection: &Connection,
+    start_date: &str,
+    end_date: &str,
+) -> Result<(i64, i64, i64, i64, i64), String> {
+    let sql = format!(
+        "SELECT
+           COALESCE(SUM(input_tokens), 0),
+           COALESCE(SUM(cached_input_tokens), 0),
+           COALESCE(SUM(output_tokens), 0),
+           COALESCE(SUM(total_tokens), 0),
+           COALESCE(SUM(request_count), 0)
+         FROM daily_usage
+         WHERE provider IN ({COMBINED_USAGE_PROVIDERS_SQL}) AND date >= ?1 AND date <= ?2"
+    );
+
+    connection
+        .query_row(&sql, params![start_date, end_date], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, i64>(2)?,
+                row.get::<_, i64>(3)?,
+                row.get::<_, i64>(4)?,
+            ))
+        })
+        .map_err(|error| error.to_string())
+}
+
 pub fn get_combined_usage_for_range(
     connection: &Connection,
     start_date: &str,
@@ -568,6 +632,8 @@ pub fn get_combined_usage_for_range(
         get_provider_agg_for_range(connection, "claude_code", start_date, end_date)?;
     let (xi, xc, xo, xt, xr) =
         get_provider_agg_for_range(connection, "codex", start_date, end_date)?;
+    let (ai, ac, ao, at, ar) =
+        get_combined_provider_agg_for_range(connection, start_date, end_date)?;
 
     Ok(CombinedUsage {
         start_date: start_date.to_string(),
@@ -582,11 +648,11 @@ pub fn get_combined_usage_for_range(
         codex_output_tokens: xo,
         codex_total_tokens: xt,
         codex_request_count: xr,
-        combined_input_tokens: ci + xi,
-        combined_cached_input_tokens: cc + xc,
-        combined_output_tokens: co + xo,
-        combined_total_tokens: ct + xt,
-        combined_request_count: cr + xr,
+        combined_input_tokens: ai,
+        combined_cached_input_tokens: ac,
+        combined_output_tokens: ao,
+        combined_total_tokens: at,
+        combined_request_count: ar,
         last_refresh_at: chrono::Utc::now().to_rfc3339(),
     })
 }
@@ -622,15 +688,18 @@ fn get_provider_total_usage(
 pub fn get_combined_usage_total(connection: &Connection) -> Result<CombinedUsage, String> {
     let (ci, cc, co, cr) = get_provider_total_usage(connection, "claude_code")?;
     let (xi, xc, xo, xr) = get_provider_total_usage(connection, "codex")?;
+    let (ai, ac, ao, ar) = get_combined_provider_total_usage(connection)?;
     let (start_date, end_date) = connection
         .query_row(
-            "
+            &format!(
+                "
             SELECT
               COALESCE(MIN(DATE(COALESCE(finished_at, started_at), 'localtime')), ''),
               COALESCE(MAX(DATE(COALESCE(finished_at, started_at), 'localtime')), '')
             FROM request_records
-            WHERE provider IN ('claude_code', 'codex')
-            ",
+            WHERE provider IN ({COMBINED_USAGE_PROVIDERS_SQL})
+            "
+            ),
             [],
             |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
         )
@@ -649,13 +718,40 @@ pub fn get_combined_usage_total(connection: &Connection) -> Result<CombinedUsage
         codex_output_tokens: xo,
         codex_total_tokens: xi + xo,
         codex_request_count: xr,
-        combined_input_tokens: ci + xi,
-        combined_cached_input_tokens: cc + xc,
-        combined_output_tokens: co + xo,
-        combined_total_tokens: ci + co + xi + xo,
-        combined_request_count: cr + xr,
+        combined_input_tokens: ai,
+        combined_cached_input_tokens: ac,
+        combined_output_tokens: ao,
+        combined_total_tokens: ai + ao,
+        combined_request_count: ar,
         last_refresh_at: chrono::Utc::now().to_rfc3339(),
     })
+}
+
+fn get_combined_provider_total_usage(
+    connection: &Connection,
+) -> Result<(i64, i64, i64, i64), String> {
+    let sql = format!(
+        "
+        SELECT
+          COALESCE(SUM(input_tokens), 0),
+          COALESCE(SUM(cached_input_tokens), 0),
+          COALESCE(SUM(output_tokens), 0),
+          COUNT(*)
+        FROM request_records
+        WHERE provider IN ({COMBINED_USAGE_PROVIDERS_SQL})
+        "
+    );
+
+    connection
+        .query_row(&sql, [], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, i64>(2)?,
+                row.get::<_, i64>(3)?,
+            ))
+        })
+        .map_err(|error| error.to_string())
 }
 
 pub fn get_usage_histogram(
@@ -706,7 +802,7 @@ pub fn get_usage_histogram(
             cached_input_tokens,
             output_tokens
           FROM request_records
-          WHERE provider IN ('claude_code', 'codex') AND {where_sql}
+          WHERE provider IN ({COMBINED_USAGE_PROVIDERS_SQL}) AND {where_sql}
         )
         SELECT
           buckets.bucket,
@@ -717,7 +813,11 @@ pub fn get_usage_histogram(
           COALESCE(SUM(CASE WHEN usage.provider = 'codex' THEN usage.input_tokens ELSE 0 END), 0),
           COALESCE(SUM(CASE WHEN usage.provider = 'codex' THEN usage.cached_input_tokens ELSE 0 END), 0),
           COALESCE(SUM(CASE WHEN usage.provider = 'codex' THEN usage.output_tokens ELSE 0 END), 0),
-          COALESCE(SUM(CASE WHEN usage.provider = 'codex' THEN 1 ELSE 0 END), 0)
+          COALESCE(SUM(CASE WHEN usage.provider = 'codex' THEN 1 ELSE 0 END), 0),
+          COALESCE(SUM(usage.input_tokens), 0),
+          COALESCE(SUM(usage.cached_input_tokens), 0),
+          COALESCE(SUM(usage.output_tokens), 0),
+          COUNT(usage.provider)
         FROM buckets
         LEFT JOIN usage ON usage.bucket = buckets.bucket
         GROUP BY buckets.bucket
@@ -739,6 +839,10 @@ pub fn get_usage_histogram(
             let xc: i64 = row.get(6)?;
             let xo: i64 = row.get(7)?;
             let xr: i64 = row.get(8)?;
+            let ai: i64 = row.get(9)?;
+            let ac: i64 = row.get(10)?;
+            let ao: i64 = row.get(11)?;
+            let ar: i64 = row.get(12)?;
             Ok(UsageHistogramBucket {
                 label: bucket.clone(),
                 bucket,
@@ -752,11 +856,11 @@ pub fn get_usage_histogram(
                 codex_output_tokens: xo,
                 codex_total_tokens: xi + xo,
                 codex_request_count: xr,
-                combined_input_tokens: ci + xi,
-                combined_cached_input_tokens: cc + xc,
-                combined_output_tokens: co + xo,
-                combined_total_tokens: ci + co + xi + xo,
-                combined_request_count: cr + xr,
+                combined_input_tokens: ai,
+                combined_cached_input_tokens: ac,
+                combined_output_tokens: ao,
+                combined_total_tokens: ai + ao,
+                combined_request_count: ar,
             })
         })
         .map_err(|error| error.to_string())?;

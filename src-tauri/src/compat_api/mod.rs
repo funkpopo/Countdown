@@ -51,7 +51,7 @@ pub struct CompatApiState {
 #[derive(Clone)]
 pub struct CompatApiServer {
     pub state: CompatApiState,
-    pub listen_address: String,
+    pub listen_address: Arc<Mutex<String>>,
     pub running: Arc<Mutex<bool>>,
     pub started_at: Arc<Mutex<Option<String>>>,
     shutdown_tx: Arc<Mutex<Option<oneshot::Sender<()>>>>,
@@ -64,11 +64,25 @@ impl CompatApiServer {
                 app_handle,
                 http_client: Client::new(),
             },
-            listen_address,
+            listen_address: Arc::new(Mutex::new(listen_address)),
             running: Arc::new(Mutex::new(false)),
             started_at: Arc::new(Mutex::new(None)),
             shutdown_tx: Arc::new(Mutex::new(None)),
         }
+    }
+
+    pub async fn set_listen_address(&self, listen_address: String) -> Result<(), String> {
+        if *self.running.lock().await {
+            return Err(
+                "Compat API server must be stopped before changing listen address".to_string(),
+            );
+        }
+
+        let _: SocketAddr = listen_address
+            .parse()
+            .map_err(|e| format!("Invalid listen address: {}", e))?;
+        *self.listen_address.lock().await = listen_address;
+        Ok(())
     }
 
     pub async fn start(&self) -> Result<(), String> {
@@ -77,8 +91,8 @@ impl CompatApiServer {
             return Err("Compat API server is already running".to_string());
         }
 
-        let addr: SocketAddr = self
-            .listen_address
+        let listen_address = self.listen_address.lock().await.clone();
+        let addr: SocketAddr = listen_address
             .parse()
             .map_err(|e| format!("Invalid listen address: {}", e))?;
 
@@ -138,7 +152,7 @@ impl CompatApiServer {
 
         CompatApiStatus {
             running,
-            listen_address: self.listen_address.clone(),
+            listen_address: self.listen_address.lock().await.clone(),
             started_at,
             profiles_count,
         }
@@ -1814,12 +1828,49 @@ fn record_compat_request<TReq: serde::Serialize, TResp: serde::Serialize>(
     response: Option<&TResp>,
     error_text: Option<String>,
 ) {
+    let request_summary_json = request.and_then(|value| serde_json::to_string(value).ok());
+    let response_summary_json = response.and_then(|value| serde_json::to_string(value).ok());
+    let record = build_compat_request_record(
+        request_id,
+        provider,
+        model,
+        is_stream,
+        input_tokens,
+        output_tokens,
+        duration_ms,
+        status,
+        request_summary_json,
+        response_summary_json,
+        error_text,
+    );
+
+    if let Ok(conn) = db::get_connection(&state.app_handle) {
+        let _ = db::upsert_request_record(&conn, &record);
+        if status == "success" {
+            let _ = db::rebuild_daily_usage_for_provider(&conn, provider);
+        }
+    }
+}
+
+fn build_compat_request_record(
+    request_id: &str,
+    provider: &str,
+    model: &str,
+    is_stream: bool,
+    input_tokens: i64,
+    output_tokens: i64,
+    duration_ms: i64,
+    status: &str,
+    request_summary_json: Option<String>,
+    response_summary_json: Option<String>,
+    error_text: Option<String>,
+) -> RequestRecordUpsertRecord {
     let request_type = if is_stream {
         RequestType::Stream
     } else {
         RequestType::Sync
     };
-    let record = RequestRecordUpsertRecord {
+    RequestRecordUpsertRecord {
         id: request_id.to_string(),
         provider: provider.to_string(),
         source_mode: "local_compat_api".to_string(),
@@ -1836,16 +1887,9 @@ fn record_compat_request<TReq: serde::Serialize, TResp: serde::Serialize>(
         status: status.to_string(),
         started_at: Utc::now().to_rfc3339(),
         finished_at: Some(Utc::now().to_rfc3339()),
-        request_summary_json: request.and_then(|value| serde_json::to_string(value).ok()),
-        response_summary_json: response.and_then(|value| serde_json::to_string(value).ok()),
+        request_summary_json,
+        response_summary_json,
         error_text,
-    };
-
-    if let Ok(conn) = db::get_connection(&state.app_handle) {
-        let _ = db::upsert_request_record(&conn, &record);
-        if status == "success" {
-            let _ = db::rebuild_daily_usage_for_provider(&conn, provider);
-        }
     }
 }
 
@@ -2256,5 +2300,231 @@ fn extract_string_list(value: Option<&serde_json::Value>) -> Vec<String> {
             .map(str::to_string)
             .collect(),
         _ => Vec::new(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn profile(
+        id: &str,
+        api_format: &str,
+        enabled: bool,
+        extra_json: Option<&str>,
+    ) -> ProviderProfileRecord {
+        ProviderProfileRecord {
+            id: id.to_string(),
+            provider_key: id.to_string(),
+            display_name: id.to_string(),
+            base_url: Some(format!("https://{}.example.test", id)),
+            api_format: api_format.to_string(),
+            api_key_env: None,
+            enabled,
+            extra_json: extra_json.map(str::to_string),
+            created_at: "2026-05-28T00:00:00Z".to_string(),
+            updated_at: "2026-05-28T00:00:00Z".to_string(),
+        }
+    }
+
+    #[test]
+    fn profile_matching_prefers_exact_model_over_prefix() {
+        let exact = profile(
+            "openai-exact",
+            "openai",
+            true,
+            Some(r#"{"models":["gpt-4.1"],"model_prefixes":["gpt-"]}"#),
+        );
+        let prefix = profile(
+            "openai-prefix",
+            "openai",
+            true,
+            Some(r#"{"model_prefixes":["gpt-4"]}"#),
+        );
+
+        assert_eq!(
+            profile_match_score(&exact, "gpt-4.1", UpstreamProtocol::OpenAI),
+            Some((3, "gpt-4.1".len()))
+        );
+        assert_eq!(
+            profile_match_score(&prefix, "gpt-4.1-mini", UpstreamProtocol::OpenAI),
+            Some((2, "gpt-4".len()))
+        );
+        assert_eq!(
+            profile_match_score(&prefix, "claude-sonnet-4", UpstreamProtocol::OpenAI),
+            None
+        );
+    }
+
+    #[test]
+    fn profile_matching_rejects_disabled_or_wrong_protocol_profiles() {
+        let disabled = profile("disabled", "openai", false, None);
+        let anthropic = profile("anthropic", "anthropic", true, None);
+
+        assert_eq!(
+            profile_match_score(&disabled, "gpt-4.1", UpstreamProtocol::OpenAI),
+            None
+        );
+        assert_eq!(
+            profile_match_score(&anthropic, "gpt-4.1", UpstreamProtocol::OpenAI),
+            None
+        );
+        assert_eq!(
+            profile_match_score(&anthropic, "claude-sonnet-4", UpstreamProtocol::Anthropic),
+            Some((1, 0))
+        );
+    }
+
+    #[test]
+    fn converts_openai_tool_calls_to_anthropic_content_blocks() {
+        let messages = vec![
+            OpenAIChatMessage {
+                role: "system".to_string(),
+                content: json!("Stay terse."),
+                extra: serde_json::Map::new(),
+            },
+            OpenAIChatMessage {
+                role: "assistant".to_string(),
+                content: json!(""),
+                extra: serde_json::Map::from_iter([(
+                    "tool_calls".to_string(),
+                    json!([{
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {
+                            "name": "lookup",
+                            "arguments": "{\"query\":\"usage\"}"
+                        }
+                    }]),
+                )]),
+            },
+            OpenAIChatMessage {
+                role: "tool".to_string(),
+                content: json!("42"),
+                extra: serde_json::Map::from_iter([("tool_call_id".to_string(), json!("call_1"))]),
+            },
+        ];
+
+        let (system, anthropic_messages) = openai_messages_to_anthropic(&messages);
+
+        assert_eq!(system, Some(json!("Stay terse.")));
+        assert_eq!(
+            anthropic_messages[0]["content"][0],
+            json!({
+                "type": "tool_use",
+                "id": "call_1",
+                "name": "lookup",
+                "input": {"query":"usage"}
+            })
+        );
+        assert_eq!(
+            anthropic_messages[1],
+            json!({
+                "role": "user",
+                "content": [{
+                    "type": "tool_result",
+                    "tool_use_id": "call_1",
+                    "content": "42"
+                }]
+            })
+        );
+    }
+
+    #[test]
+    fn converts_anthropic_tool_use_to_openai_tool_calls() {
+        let messages = vec![AnthropicMessage {
+            role: "assistant".to_string(),
+            content: json!([{
+                "type": "tool_use",
+                "id": "toolu_1",
+                "name": "search",
+                "input": {"q": "codex"}
+            }]),
+        }];
+
+        let openai_messages = anthropic_messages_to_openai(&None, &messages);
+
+        assert_eq!(openai_messages[0]["role"], json!("assistant"));
+        assert_eq!(
+            openai_messages[0]["tool_calls"][0],
+            json!({
+                "id": "toolu_1",
+                "type": "function",
+                "function": {
+                    "name": "search",
+                    "arguments": "{\"q\":\"codex\"}"
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn extracts_stream_usage_tokens_from_openai_and_anthropic_shapes() {
+        assert_eq!(
+            stream_usage_tokens(&json!({
+                "usage": {
+                    "prompt_tokens": 11,
+                    "completion_tokens": 7
+                }
+            })),
+            (11, 7)
+        );
+        assert_eq!(
+            stream_usage_tokens(&json!({
+                "message": {
+                    "usage": {
+                        "input_tokens": 13,
+                        "output_tokens": 5
+                    }
+                }
+            })),
+            (13, 5)
+        );
+    }
+
+    #[test]
+    fn detects_stream_payloads_that_should_set_ttft() {
+        assert!(openai_stream_payload_has_visible_delta(&json!({
+            "choices": [{
+                "delta": {"content": "hello"}
+            }]
+        })));
+        assert!(anthropic_stream_payload_has_visible_delta(&json!({
+            "type": "content_block_delta",
+            "delta": {"type": "text_delta", "text": "hello"}
+        })));
+        assert!(!anthropic_stream_payload_has_visible_delta(&json!({
+            "type": "message_delta",
+            "usage": {"output_tokens": 1}
+        })));
+    }
+
+    #[test]
+    fn builds_error_request_record_with_status_and_error_text() {
+        let record = build_compat_request_record(
+            "req_1",
+            "openai_compat",
+            "gpt-4.1",
+            false,
+            0,
+            0,
+            123,
+            "error_500",
+            Some(json!({"model":"gpt-4.1"}).to_string()),
+            None,
+            Some("upstream failed".to_string()),
+        );
+
+        assert_eq!(record.id, "req_1");
+        assert_eq!(record.provider, "openai_compat");
+        assert_eq!(record.status, "error_500");
+        assert_eq!(record.duration_ms, Some(123));
+        assert_eq!(
+            record.request_summary_json,
+            Some(r#"{"model":"gpt-4.1"}"#.to_string())
+        );
+        assert_eq!(record.response_summary_json, None);
+        assert_eq!(record.error_text, Some("upstream failed".to_string()));
+        assert!(!record.is_stream);
     }
 }
