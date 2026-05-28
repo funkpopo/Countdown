@@ -679,7 +679,9 @@ function App() {
 
   useEffect(() => {
     refresh();
-    fetchAllPeriodUsage();
+    // Only fetch today's period and histograms on startup
+    // Other periods are loaded on-demand when user switches tabs
+    fetchPeriodUsage("today");
     fetchAllHistograms();
   }, []);
 

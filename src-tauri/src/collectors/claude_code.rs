@@ -62,6 +62,10 @@ struct ParsedProjectFile {
 
 impl ClaudeCodeCollector {
     pub fn import_default_sessions() -> Result<ClaudeImportResult, String> {
+        Self::import_sessions_since(None)
+    }
+
+    pub fn import_sessions_since(after_time: Option<chrono::DateTime<chrono::Utc>>) -> Result<ClaudeImportResult, String> {
         let data_dir = default_claude_data_dir()?;
         if !data_dir.exists() {
             return Ok(ClaudeImportResult {
@@ -86,8 +90,20 @@ impl ClaudeCodeCollector {
         let session_meta_overrides = load_session_meta_overrides(&sessions_dir);
 
         let mut all_sessions: HashMap<String, SessionState> = HashMap::new();
+        let mut scanned: i64 = 0;
 
         for file in &files {
+            if let Some(ref cutoff) = after_time {
+                if let Ok(metadata) = fs::metadata(file) {
+                    if let Ok(modified) = metadata.modified() {
+                        let modified_dt: chrono::DateTime<chrono::Utc> = modified.into();
+                        if modified_dt < *cutoff {
+                            continue;
+                        }
+                    }
+                }
+            }
+            scanned += 1;
             let parsed = parse_project_jsonl(file)?;
             for (key, state) in parsed.sessions {
                 all_sessions
@@ -134,7 +150,7 @@ impl ClaudeCodeCollector {
         Ok(ClaudeImportResult {
             data_dir,
             data_dir_exists: true,
-            scanned_files: files.len() as i64,
+            scanned_files: scanned,
             sessions,
             requests,
             skipped_incomplete_sessions: 0,

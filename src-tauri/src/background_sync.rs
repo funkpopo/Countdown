@@ -24,6 +24,9 @@ pub fn start(app: AppHandle) {
         let mut quiet_ticks = 0;
         let mut next_interval = ACTIVE_POLL_INTERVAL;
 
+        // Brief delay so the Tauri window can render before heavy sync work
+        tokio::time::sleep(Duration::from_millis(500)).await;
+
         let first_tick = run_once(app.clone(), &mut last_fingerprint, true).await;
         apply_tick_result(first_tick, &mut quiet_ticks, &mut next_interval);
 

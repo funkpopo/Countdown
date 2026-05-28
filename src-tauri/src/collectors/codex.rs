@@ -68,6 +68,10 @@ struct ParsedRollout {
 
 impl CodexCollector {
     pub fn import_default_sessions() -> Result<CodexImportResult, String> {
+        Self::import_sessions_since(None)
+    }
+
+    pub fn import_sessions_since(after_time: Option<chrono::DateTime<chrono::Utc>>) -> Result<CodexImportResult, String> {
         let data_dir = default_codex_sessions_dir()?;
         if !data_dir.exists() {
             return Ok(CodexImportResult {
@@ -86,8 +90,20 @@ impl CodexCollector {
 
         let mut sessions = Vec::new();
         let mut requests = Vec::new();
+        let mut scanned: i64 = 0;
 
         for file in &files {
+            if let Some(ref cutoff) = after_time {
+                if let Ok(metadata) = fs::metadata(file) {
+                    if let Ok(modified) = metadata.modified() {
+                        let modified_dt: chrono::DateTime<chrono::Utc> = modified.into();
+                        if modified_dt < *cutoff {
+                            continue;
+                        }
+                    }
+                }
+            }
+            scanned += 1;
             let parsed = parse_rollout_file(file)?;
             if let Some(session) = parsed.session {
                 sessions.push(session);
@@ -98,7 +114,7 @@ impl CodexCollector {
         Ok(CodexImportResult {
             data_dir,
             data_dir_exists: true,
-            scanned_files: files.len() as i64,
+            scanned_files: scanned,
             sessions,
             requests,
             skipped_incomplete_turns: 0,

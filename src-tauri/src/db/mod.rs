@@ -222,3 +222,11 @@ pub fn rebuild_daily_usage_for_provider(
 ) -> Result<(), String> {
     repository::rebuild_daily_usage_for_provider(connection, provider)
 }
+
+pub fn rebuild_daily_usage_for_dates(
+    connection: &Connection,
+    provider: &str,
+    dates: &[String],
+) -> Result<(), String> {
+    repository::rebuild_daily_usage_for_dates(connection, provider, dates)
+}

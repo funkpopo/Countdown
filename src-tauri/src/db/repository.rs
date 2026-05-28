@@ -25,6 +25,28 @@ const REQUEST_RECORDS_RECENT_ORDER: &str = "
 const COMBINED_USAGE_PROVIDERS_SQL: &str =
     "'claude_code', 'codex', 'openai_compat', 'anthropic_compat'";
 
+pub fn get_app_metadata(connection: &Connection, key: &str) -> Result<Option<String>, String> {
+    connection
+        .query_row(
+            "SELECT value FROM app_metadata WHERE key = ?1",
+            params![key],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(|error| error.to_string())
+}
+
+pub fn set_app_metadata(connection: &Connection, key: &str, value: &str) -> Result<(), String> {
+    connection
+        .execute(
+            "INSERT INTO app_metadata (key, value) VALUES (?1, ?2)
+             ON CONFLICT(key) DO UPDATE SET value = ?2",
+            params![key, value],
+        )
+        .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
 pub fn get_database_summary(connection: &Connection) -> Result<DatabaseSummary, String> {
     let schema_version = connection
         .query_row(
@@ -448,6 +470,85 @@ pub fn rebuild_daily_usage_for_provider(
             GROUP BY usage_date, provider
             ",
             [provider],
+        )
+        .map_err(|error| error.to_string())?;
+
+    Ok(())
+}
+
+/// Rebuild daily_usage only for specific dates of a given provider.
+/// This avoids a full table scan when only a few dates are affected.
+pub fn rebuild_daily_usage_for_dates(
+    connection: &Connection,
+    provider: &str,
+    dates: &[String],
+) -> Result<(), String> {
+    if dates.is_empty() {
+        return Ok(());
+    }
+
+    // Build placeholders for the date list
+    let placeholders: Vec<String> = (0..dates.len()).map(|i| format!("?{}", i + 2)).collect();
+    let placeholders_str = placeholders.join(",");
+
+    // Delete only affected dates
+    let delete_sql = format!(
+        "DELETE FROM daily_usage WHERE provider = ?1 AND date IN ({})",
+        placeholders_str
+    );
+    let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+    params.push(Box::new(provider.to_string()));
+    for date in dates {
+        params.push(Box::new(date.clone()));
+    }
+    connection
+        .execute(
+            &delete_sql,
+            rusqlite::params_from_iter(params.iter().map(|v| v.as_ref())),
+        )
+        .map_err(|error| error.to_string())?;
+
+    // Rebuild only affected dates
+    let insert_sql = format!(
+        "
+        INSERT INTO daily_usage (
+          date,
+          provider,
+          input_tokens,
+          cached_input_tokens,
+          output_tokens,
+          total_tokens,
+          request_count,
+          stream_count,
+          non_stream_count,
+          avg_ttft_ms,
+          avg_duration_ms,
+          updated_at
+        )
+        SELECT
+          DATE(COALESCE(finished_at, started_at), 'localtime') AS usage_date,
+          provider,
+          COALESCE(SUM(input_tokens), 0),
+          COALESCE(SUM(cached_input_tokens), 0),
+          COALESCE(SUM(output_tokens), 0),
+          COALESCE(SUM(input_tokens + output_tokens), 0),
+          COUNT(*),
+          COALESCE(SUM(CASE WHEN is_stream = 1 THEN 1 ELSE 0 END), 0),
+          COALESCE(SUM(CASE WHEN is_stream = 0 THEN 1 ELSE 0 END), 0),
+          AVG(ttft_ms),
+          AVG(duration_ms),
+          CURRENT_TIMESTAMP
+        FROM request_records
+        WHERE provider = ?1
+          AND DATE(COALESCE(finished_at, started_at), 'localtime') IN ({})
+        GROUP BY usage_date, provider
+        ",
+        placeholders_str
+    );
+    connection
+        .execute(
+            &insert_sql,
+            rusqlite::params_from_iter(params.iter().map(|v| v.as_ref())),
         )
         .map_err(|error| error.to_string())?;
 
