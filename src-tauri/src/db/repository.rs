@@ -1137,6 +1137,10 @@ pub fn list_filtered_request_records(
 ) -> Result<PaginatedRequestRecords, String> {
     let limit = filter.limit.unwrap_or(50).clamp(1, 500);
     let offset = filter.offset.unwrap_or(0).max(0);
+    let use_cursor = filter.sort_by.as_deref().unwrap_or("startedAt") == "startedAt";
+    let cursor_direction = filter.cursor_direction.as_deref().unwrap_or("next");
+    let cursor_started_at = filter.cursor_started_at.as_deref();
+    let cursor_id = filter.cursor_id.as_deref();
 
     let mut where_clauses = Vec::new();
     let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
@@ -1236,12 +1240,51 @@ pub fn list_filtered_request_records(
         }
     }
 
+    if use_cursor {
+        match (cursor_direction, cursor_started_at, cursor_id) {
+            ("next", Some(started_at), Some(id)) => {
+                where_clauses.push(format!(
+                    "(
+                      COALESCE(rr.started_at, rr.finished_at) < ?{}
+                      OR (
+                        COALESCE(rr.started_at, rr.finished_at) = ?{}
+                        AND rr.id < ?{}
+                      )
+                    )",
+                    param_index, param_index + 1, param_index + 2
+                ));
+                param_values.push(Box::new(started_at.to_string()));
+                param_values.push(Box::new(started_at.to_string()));
+                param_values.push(Box::new(id.to_string()));
+                param_index += 3;
+            }
+            ("prev", Some(started_at), Some(id)) => {
+                where_clauses.push(format!(
+                    "(
+                      COALESCE(rr.started_at, rr.finished_at) > ?{}
+                      OR (
+                        COALESCE(rr.started_at, rr.finished_at) = ?{}
+                        AND rr.id > ?{}
+                      )
+                    )",
+                    param_index, param_index + 1, param_index + 2
+                ));
+                param_values.push(Box::new(started_at.to_string()));
+                param_values.push(Box::new(started_at.to_string()));
+                param_values.push(Box::new(id.to_string()));
+                param_index += 3;
+            }
+            _ => {}
+        }
+    }
+
     let where_sql = if where_clauses.is_empty() {
         String::new()
     } else {
         format!("WHERE {}", where_clauses.join(" AND "))
     };
     let order_sql = request_filter_order_sql(filter);
+    let fetch_limit = limit + 1;
 
     let summary_sql = format!(
         "
@@ -1317,7 +1360,7 @@ pub fn list_filtered_request_records(
     );
 
     let mut param_values_with_limit = param_values;
-    param_values_with_limit.push(Box::new(limit));
+    param_values_with_limit.push(Box::new(fetch_limit));
     param_values_with_limit.push(Box::new(offset));
 
     let mut statement = connection
@@ -1334,9 +1377,21 @@ pub fn list_filtered_request_records(
     let records = rows
         .collect::<Result<Vec<_>, _>>()
         .map_err(|error| error.to_string())?;
+    let has_more = records.len() > limit as usize;
+    let page_records = if has_more {
+        records[..limit as usize].to_vec()
+    } else {
+        records
+    };
+    let next_cursor = page_records
+        .last()
+        .map(|record| (record.started_at.clone(), record.id.clone()));
+    let prev_cursor = page_records
+        .first()
+        .map(|record| (record.started_at.clone(), record.id.clone()));
 
     Ok(PaginatedRequestRecords {
-        records,
+        records: page_records,
         total,
         total_input_tokens,
         total_cached_input_tokens,
@@ -1344,6 +1399,11 @@ pub fn list_filtered_request_records(
         total_reasoning_tokens,
         limit,
         offset,
+        has_more,
+        next_cursor_started_at: next_cursor.as_ref().map(|cursor| cursor.0.clone()),
+        next_cursor_id: next_cursor.as_ref().map(|cursor| cursor.1.clone()),
+        prev_cursor_started_at: prev_cursor.as_ref().map(|cursor| cursor.0.clone()),
+        prev_cursor_id: prev_cursor.as_ref().map(|cursor| cursor.1.clone()),
     })
 }
 

@@ -173,8 +173,29 @@
   overflow: visible;
 }
 
+.virtual-table-container {
+  max-height: min(68vh, 720px);
+  overflow: auto;
+  position: relative;
+}
+
+.virtual-table-container .data-table {
+  min-width: 960px;
+}
+
+.virtual-table-container .data-table tbody tr {
+  height: 40px;
+}
+
+.virtual-spacer td {
+  padding: 0 !important;
+  border-bottom: 0 !important;
+  height: 0;
+}
+
 .request-row {
   cursor: pointer;
+  height: 40px;
 }
 
 .request-row:hover {

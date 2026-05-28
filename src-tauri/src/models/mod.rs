@@ -389,6 +389,9 @@ pub struct RequestFilterInput {
     pub search: Option<String>,
     pub sort_by: Option<String>,
     pub sort_dir: Option<String>,
+    pub cursor_started_at: Option<String>,
+    pub cursor_id: Option<String>,
+    pub cursor_direction: Option<String>,
     pub started_after: Option<String>,
     pub started_before: Option<String>,
     pub limit: Option<i64>,
@@ -414,6 +417,11 @@ pub struct PaginatedRequestRecords {
     pub total_reasoning_tokens: i64,
     pub limit: i64,
     pub offset: i64,
+    pub has_more: bool,
+    pub next_cursor_started_at: Option<String>,
+    pub next_cursor_id: Option<String>,
+    pub prev_cursor_started_at: Option<String>,
+    pub prev_cursor_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

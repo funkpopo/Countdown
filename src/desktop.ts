@@ -140,6 +140,9 @@ export type RequestFilterInput = {
   sortDir?: "asc" | "desc";
   startedAfter?: string;
   startedBefore?: string;
+  cursorStartedAt?: string | null;
+  cursorId?: string | null;
+  cursorDirection?: "next" | "prev";
   limit?: number;
   offset?: number;
 };
@@ -159,6 +162,11 @@ export type PaginatedRequestRecords = {
   totalReasoningTokens: number;
   limit: number;
   offset: number;
+  hasMore: boolean;
+  nextCursorStartedAt: string | null;
+  nextCursorId: string | null;
+  prevCursorStartedAt: string | null;
+  prevCursorId: string | null;
 };
 
 export type CodexOverview = {

@@ -1,4 +1,4 @@
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import {
   getRequestFilterOptions,
   listFilteredRequests,
@@ -62,6 +62,8 @@ function formatJsonSummary(value: string) {
 }
 
 const FILTER_STORAGE_KEY = "countdown.requestFilters.v1";
+const REQUEST_ROW_HEIGHT = 40;
+const REQUEST_OVERSCAN = 8;
 
 type RequestSortBy = NonNullable<RequestFilterInput["sortBy"]>;
 type RequestSortDir = NonNullable<RequestFilterInput["sortDir"]>;
@@ -76,6 +78,9 @@ type RequestFilterState = RequestFilterInput & {
   startedBefore: string;
   model: string;
   modelQuery: string;
+  cursorStartedAt: string | null;
+  cursorId: string | null;
+  cursorDirection: "next" | "prev";
 };
 
 const DEFAULT_FILTER_STATE: RequestFilterState = {
@@ -88,6 +93,9 @@ const DEFAULT_FILTER_STATE: RequestFilterState = {
   startedBefore: "",
   model: "",
   modelQuery: "",
+  cursorStartedAt: null,
+  cursorId: null,
+  cursorDirection: "next",
   isStream: undefined,
   limit: 50,
   offset: 0,
@@ -117,6 +125,9 @@ function loadSavedFilters(): RequestFilterState {
       startedBefore: typeof parsed.startedBefore === "string" ? parsed.startedBefore : "",
       model: typeof parsed.model === "string" ? parsed.model : "",
       modelQuery: typeof parsed.modelQuery === "string" ? parsed.modelQuery : "",
+      cursorStartedAt: typeof parsed.cursorStartedAt === "string" ? parsed.cursorStartedAt : null,
+      cursorId: typeof parsed.cursorId === "string" ? parsed.cursorId : null,
+      cursorDirection: parsed.cursorDirection === "prev" ? "prev" : "next",
       isStream: typeof parsed.isStream === "boolean" ? parsed.isStream : undefined,
       limit: typeof parsed.limit === "number" ? parsed.limit : 50,
       offset: typeof parsed.offset === "number" ? parsed.offset : 0,
@@ -312,6 +323,85 @@ function renderRequestRow(
   );
 }
 
+function RequestTableBody({
+  records,
+  onSelect,
+  t,
+}: {
+  records: RequestRecordListItem[];
+  onSelect: (id: string) => void;
+  t: (key: string, ...args: string[]) => string;
+}) {
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const [scrollTop, setScrollTop] = useState(0);
+  const [viewportHeight, setViewportHeight] = useState(0);
+
+  useEffect(() => {
+    const element = scrollRef.current;
+    if (!element) {
+      return;
+    }
+
+    const updateSize = () => {
+      setViewportHeight(element.clientHeight);
+    };
+
+    updateSize();
+
+    const resizeObserver = new ResizeObserver(updateSize);
+    resizeObserver.observe(element);
+
+    return () => resizeObserver.disconnect();
+  }, []);
+
+  const totalHeight = records.length * REQUEST_ROW_HEIGHT;
+  const startIndex = Math.max(0, Math.floor(scrollTop / REQUEST_ROW_HEIGHT) - REQUEST_OVERSCAN);
+  const visibleCount = Math.ceil(viewportHeight / REQUEST_ROW_HEIGHT) + REQUEST_OVERSCAN * 2;
+  const endIndex = Math.min(records.length, startIndex + visibleCount);
+  const visibleRecords = records.slice(startIndex, endIndex);
+  const topSpacer = startIndex * REQUEST_ROW_HEIGHT;
+  const bottomSpacer = Math.max(0, totalHeight - topSpacer - visibleRecords.length * REQUEST_ROW_HEIGHT);
+
+  return (
+    <div
+      ref={scrollRef}
+      className="table-container virtual-table-container"
+      onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
+    >
+      <table className="data-table">
+        <thead>
+          <tr>
+            <th>{t("th.model_request_id")}</th>
+            <th>{t("th.provider")}</th>
+            <th>{t("th.mode")}</th>
+            <th>{t("th.input")}</th>
+            <th>{t("th.output")}</th>
+            <th>{t("th.cached")}</th>
+            <th>{t("th.reasoning")}</th>
+            <th>{t("th.ttft")}</th>
+            <th>{t("th.duration")}</th>
+            <th>{t("th.status")}</th>
+            <th>{t("th.started")}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {topSpacer > 0 ? (
+            <tr className="virtual-spacer" aria-hidden="true">
+              <td colSpan={11} style={{ height: `${topSpacer}px` }} />
+            </tr>
+          ) : null}
+          {visibleRecords.map((record) => renderRequestRow(record, onSelect, t))}
+          {bottomSpacer > 0 ? (
+            <tr className="virtual-spacer" aria-hidden="true">
+              <td colSpan={11} style={{ height: `${bottomSpacer}px` }} />
+            </tr>
+          ) : null}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function Requests() {
   const { t } = useLanguage();
   const [filter, setFilter] = useState<RequestFilterState>(() => loadSavedFilters());
@@ -326,7 +416,12 @@ function Requests() {
     startTransition(async () => {
       try {
         setError(null);
-        const result = await listFilteredRequests(filter);
+        const result = await listFilteredRequests({
+          ...filter,
+          cursorStartedAt: filter.cursorStartedAt,
+          cursorId: filter.cursorId,
+          cursorDirection: filter.cursorDirection,
+        });
         setData(result);
       } catch (refreshError) {
         setError(
@@ -371,35 +466,35 @@ function Requests() {
   };
 
   const handleProviderChange = (provider: string | undefined) => {
-    setFilter((prev) => ({ ...prev, provider, offset: 0 }));
+    setFilter((prev) => ({ ...prev, provider, offset: 0, cursorStartedAt: null, cursorId: null, cursorDirection: "next" }));
   };
 
   const handleProvidersChange = (providers: string[]) => {
-    setFilter((prev) => ({ ...prev, providers, offset: 0 }));
+    setFilter((prev) => ({ ...prev, providers, offset: 0, cursorStartedAt: null, cursorId: null, cursorDirection: "next" }));
   };
 
   const handleModelChange = (model: string | undefined) => {
-    setFilter((prev) => ({ ...prev, model: model ?? "", offset: 0 }));
+    setFilter((prev) => ({ ...prev, model: model ?? "", offset: 0, cursorStartedAt: null, cursorId: null, cursorDirection: "next" }));
   };
 
   const handleModelQueryChange = (modelQuery: string) => {
-    setFilter((prev) => ({ ...prev, modelQuery, offset: 0 }));
+    setFilter((prev) => ({ ...prev, modelQuery, offset: 0, cursorStartedAt: null, cursorId: null, cursorDirection: "next" }));
   };
 
   const handleSearchChange = (search: string) => {
-    setFilter((prev) => ({ ...prev, search, offset: 0 }));
+    setFilter((prev) => ({ ...prev, search, offset: 0, cursorStartedAt: null, cursorId: null, cursorDirection: "next" }));
   };
 
   const handleStreamChange = (isStream: boolean | undefined) => {
-    setFilter((prev) => ({ ...prev, isStream, offset: 0 }));
+    setFilter((prev) => ({ ...prev, isStream, offset: 0, cursorStartedAt: null, cursorId: null, cursorDirection: "next" }));
   };
 
   const handleStatusChange = (status: string) => {
-    setFilter((prev) => ({ ...prev, status, offset: 0 }));
+    setFilter((prev) => ({ ...prev, status, offset: 0, cursorStartedAt: null, cursorId: null, cursorDirection: "next" }));
   };
 
   const handleDateChange = (key: "startedAfter" | "startedBefore", value: string) => {
-    setFilter((prev) => ({ ...prev, [key]: value, offset: 0 }));
+    setFilter((prev) => ({ ...prev, [key]: value, offset: 0, cursorStartedAt: null, cursorId: null, cursorDirection: "next" }));
   };
 
   const handleSortChange = (sortBy: RequestSortBy) => {
@@ -407,6 +502,9 @@ function Requests() {
       ...prev,
       sortBy,
       offset: 0,
+      cursorStartedAt: null,
+      cursorId: null,
+      cursorDirection: "next",
     }));
   };
 
@@ -415,6 +513,9 @@ function Requests() {
       ...prev,
       sortDir,
       offset: 0,
+      cursorStartedAt: null,
+      cursorId: null,
+      cursorDirection: "next",
     }));
   };
 
@@ -422,18 +523,31 @@ function Requests() {
     setFilter((prev) => ({
       ...DEFAULT_FILTER_STATE,
       limit: prev.limit,
+      offset: 0,
     }));
   };
 
   const handleNextPage = () => {
-    if (data && data.offset + data.limit < data.total) {
-      setFilter((prev) => ({ ...prev, offset: (prev.offset ?? 0) + (prev.limit ?? 50) }));
+    if (data?.hasMore && data.nextCursorStartedAt && data.nextCursorId) {
+      setFilter((prev) => ({
+        ...prev,
+        cursorStartedAt: data.nextCursorStartedAt,
+        cursorId: data.nextCursorId,
+        cursorDirection: "next",
+        offset: 0,
+      }));
     }
   };
 
   const handlePrevPage = () => {
-    if (data && data.offset > 0) {
-      setFilter((prev) => ({ ...prev, offset: Math.max(0, (prev.offset ?? 0) - (prev.limit ?? 50)) }));
+    if (data?.prevCursorStartedAt && data.prevCursorId) {
+      setFilter((prev) => ({
+        ...prev,
+        cursorStartedAt: data.prevCursorStartedAt,
+        cursorId: data.prevCursorId,
+        cursorDirection: "prev",
+        offset: 0,
+      }));
     }
   };
 
@@ -630,35 +744,14 @@ function Requests() {
       <section className="requests-table-panel">
         {data?.records.length ? (
           <>
-            <div className="table-container">
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>{t("th.model_request_id")}</th>
-                    <th>{t("th.provider")}</th>
-                    <th>{t("th.mode")}</th>
-                    <th>{t("th.input")}</th>
-                    <th>{t("th.output")}</th>
-                    <th>{t("th.cached")}</th>
-                    <th>{t("th.reasoning")}</th>
-                    <th>{t("th.ttft")}</th>
-                    <th>{t("th.duration")}</th>
-                    <th>{t("th.status")}</th>
-                    <th>{t("th.started")}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.records.map((record) => renderRequestRow(record, handleSelectRequest, t))}
-                </tbody>
-              </table>
-            </div>
+            <RequestTableBody records={data.records} onSelect={handleSelectRequest} t={t} />
 
             <div className="pagination">
               <button
                 type="button"
                 className="secondary"
                 onClick={handlePrevPage}
-                disabled={isPending || !data || data.offset === 0}
+                disabled={isPending || !data?.prevCursorStartedAt || !data?.prevCursorId}
               >
                 {t("pagination.previous")}
               </button>
@@ -672,7 +765,7 @@ function Requests() {
                 type="button"
                 className="secondary"
                 onClick={handleNextPage}
-                disabled={isPending || !data || data.offset + data.limit >= data.total}
+                disabled={isPending || !data?.hasMore}
               >
                 {t("pagination.next")}
               </button>
