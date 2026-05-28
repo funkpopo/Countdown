@@ -41,12 +41,10 @@ impl CollectorManager {
         let codex_cutoff = read_last_synced(connection, CODEX_PROVIDER);
         let claude_cutoff = read_last_synced(connection, CLAUDE_PROVIDER);
 
-        let codex_handle = std::thread::spawn(move || {
-            CodexCollector::import_sessions_since(codex_cutoff)
-        });
-        let claude_handle = std::thread::spawn(move || {
-            ClaudeCodeCollector::import_sessions_since(claude_cutoff)
-        });
+        let codex_handle =
+            std::thread::spawn(move || CodexCollector::import_sessions_since(codex_cutoff));
+        let claude_handle =
+            std::thread::spawn(move || ClaudeCodeCollector::import_sessions_since(claude_cutoff));
 
         let codex_import = codex_handle
             .join()
@@ -70,7 +68,11 @@ impl CollectorManager {
             collect_affected_dates(request, &mut affected_dates);
         }
         if !codex_import.requests.is_empty() {
-            repository::rebuild_daily_usage_for_dates(&transaction, CODEX_PROVIDER, &affected_dates)?;
+            repository::rebuild_daily_usage_for_dates(
+                &transaction,
+                CODEX_PROVIDER,
+                &affected_dates,
+            )?;
         }
 
         affected_dates.clear();
@@ -83,7 +85,11 @@ impl CollectorManager {
             collect_affected_dates(request, &mut affected_dates);
         }
         if !claude_import.requests.is_empty() {
-            repository::rebuild_daily_usage_for_dates(&transaction, CLAUDE_PROVIDER, &affected_dates)?;
+            repository::rebuild_daily_usage_for_dates(
+                &transaction,
+                CLAUDE_PROVIDER,
+                &affected_dates,
+            )?;
         }
 
         // Write the last-synced timestamp so future incremental syncs can skip unchanged files
@@ -175,7 +181,10 @@ impl CollectorManager {
 /// Extract the date portion from a request's started_at or finished_at and add it to
 /// the affected_dates set (deduplicated).
 fn collect_affected_dates(request: &RequestRecordUpsertRecord, dates: &mut Vec<String>) {
-    let source = request.finished_at.as_deref().unwrap_or(&request.started_at);
+    let source = request
+        .finished_at
+        .as_deref()
+        .unwrap_or(&request.started_at);
     // Extract YYYY-MM-DD from an ISO timestamp or date string
     if source.len() >= 10 {
         let date = &source[..10]; // "2024-01-15" portion
@@ -188,7 +197,10 @@ fn collect_affected_dates(request: &RequestRecordUpsertRecord, dates: &mut Vec<S
 /// Read the last_synced_at_{provider} timestamp from app_metadata.
 /// Returns None when there is no prior sync (first run), which causes the
 /// collector to parse all files.
-fn read_last_synced(connection: &Connection, provider: &str) -> Option<chrono::DateTime<chrono::Utc>> {
+fn read_last_synced(
+    connection: &Connection,
+    provider: &str,
+) -> Option<chrono::DateTime<chrono::Utc>> {
     let key = format!("last_synced_at_{}", provider);
     match repository::get_app_metadata(connection, &key) {
         Ok(Some(value)) => chrono::DateTime::parse_from_rfc3339(&value)

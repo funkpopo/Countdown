@@ -3,8 +3,8 @@ use rusqlite::{params, Connection, OptionalExtension};
 use crate::models::{
     AppliedMigration, CombinedTodayUsage, CombinedUsage, DailyUsageRecord, DatabaseSummary,
     PaginatedRequestRecords, ProviderProfileRecord, ProviderProfileUpsertInput, RequestFilterInput,
-    RequestRecordDetail, RequestRecordListItem, RequestRecordUpsertRecord, SessionUpsertRecord,
-    TableStat, UsageHistogram, UsageHistogramBucket,
+    RequestFilterOptions, RequestRecordDetail, RequestRecordListItem, RequestRecordUpsertRecord,
+    SessionUpsertRecord, TableStat, UsageHistogram, UsageHistogramBucket,
 };
 
 const CORE_TABLES: &[&str] = &[
@@ -24,6 +24,13 @@ const REQUEST_RECORDS_RECENT_ORDER: &str = "
 
 const COMBINED_USAGE_PROVIDERS_SQL: &str =
     "'claude_code', 'codex', 'openai_compat', 'anthropic_compat'";
+
+const REQUEST_FILTER_SORT_STARTED_DESC: &str = "
+    CASE WHEN COALESCE(rr.started_at, rr.finished_at) IS NULL THEN 1 ELSE 0 END ASC,
+    unixepoch(COALESCE(rr.started_at, rr.finished_at)) DESC,
+    COALESCE(rr.started_at, rr.finished_at) DESC,
+    rr.updated_at DESC
+";
 
 pub fn get_app_metadata(connection: &Connection, key: &str) -> Result<Option<String>, String> {
     connection
@@ -1093,27 +1100,84 @@ fn query_table_count(connection: &Connection, table_name: &str) -> Result<i64, S
         .map_err(|error| error.to_string())
 }
 
+pub fn get_request_filter_options(connection: &Connection) -> Result<RequestFilterOptions, String> {
+    Ok(RequestFilterOptions {
+        providers: list_distinct_request_values(connection, "provider")?,
+        models: list_distinct_request_values(connection, "model")?,
+        statuses: list_distinct_request_values(connection, "status")?,
+    })
+}
+
+fn list_distinct_request_values(
+    connection: &Connection,
+    column: &str,
+) -> Result<Vec<String>, String> {
+    let sql = format!(
+        "
+        SELECT DISTINCT {column}
+        FROM request_records
+        WHERE {column} IS NOT NULL AND TRIM({column}) <> ''
+        ORDER BY {column} ASC
+        "
+    );
+    let mut statement = connection
+        .prepare(&sql)
+        .map_err(|error| error.to_string())?;
+    let rows = statement
+        .query_map([], |row| row.get::<_, String>(0))
+        .map_err(|error| error.to_string())?;
+
+    rows.collect::<Result<Vec<_>, _>>()
+        .map_err(|error| error.to_string())
+}
+
 pub fn list_filtered_request_records(
     connection: &Connection,
     filter: &RequestFilterInput,
 ) -> Result<PaginatedRequestRecords, String> {
-    let limit = filter.limit.unwrap_or(50);
-    let offset = filter.offset.unwrap_or(0);
+    let limit = filter.limit.unwrap_or(50).clamp(1, 500);
+    let offset = filter.offset.unwrap_or(0).max(0);
 
     let mut where_clauses = Vec::new();
     let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
     let mut param_index = 1;
 
-    if let Some(ref provider) = filter.provider {
-        where_clauses.push(format!("rr.provider = ?{}", param_index));
-        param_values.push(Box::new(provider.clone()));
-        param_index += 1;
+    let providers = normalized_filter_values(
+        filter
+            .providers
+            .as_deref()
+            .unwrap_or(&[])
+            .iter()
+            .map(String::as_str)
+            .chain(filter.provider.as_deref()),
+    );
+    if !providers.is_empty() {
+        let placeholders = push_string_list_params(&mut param_values, &mut param_index, &providers);
+        where_clauses.push(format!("rr.provider IN ({})", placeholders.join(", ")));
     }
 
     if let Some(ref model) = filter.model {
-        where_clauses.push(format!("rr.model = ?{}", param_index));
-        param_values.push(Box::new(model.clone()));
-        param_index += 1;
+        let trimmed = model.trim();
+        if !trimmed.is_empty() {
+            where_clauses.push(format!("rr.model = ?{}", param_index));
+            param_values.push(Box::new(trimmed.to_string()));
+            param_index += 1;
+        }
+    }
+
+    if let Some(ref model_query) = filter.model_query {
+        let trimmed = model_query.trim();
+        if !trimmed.is_empty() {
+            where_clauses.push(format!(
+                "LOWER(COALESCE(rr.model, '')) LIKE ?{}",
+                param_index
+            ));
+            param_values.push(Box::new(format!(
+                "%{}%",
+                escape_like(trimmed).to_lowercase()
+            )));
+            param_index += 1;
+        }
     }
 
     if let Some(is_stream) = filter.is_stream {
@@ -1122,16 +1186,54 @@ pub fn list_filtered_request_records(
         param_index += 1;
     }
 
+    if let Some(ref status) = filter.status {
+        match status.as_str() {
+            "success" => where_clauses.push("rr.status = 'success'".to_string()),
+            "completed" => where_clauses.push("rr.status = 'completed'".to_string()),
+            "error" | "error_*" => where_clauses.push("rr.status LIKE 'error_%'".to_string()),
+            "incomplete" => where_clauses.push("rr.status = 'incomplete'".to_string()),
+            exact if !exact.trim().is_empty() => {
+                where_clauses.push(format!("rr.status = ?{}", param_index));
+                param_values.push(Box::new(exact.trim().to_string()));
+                param_index += 1;
+            }
+            _ => {}
+        }
+    }
+
     if let Some(ref after) = filter.started_after {
-        where_clauses.push(format!("rr.started_at >= ?{}", param_index));
-        param_values.push(Box::new(after.clone()));
-        param_index += 1;
+        if !after.trim().is_empty() {
+            where_clauses.push(format!("rr.started_at >= ?{}", param_index));
+            param_values.push(Box::new(after.trim().to_string()));
+            param_index += 1;
+        }
     }
 
     if let Some(ref before) = filter.started_before {
-        where_clauses.push(format!("rr.started_at <= ?{}", param_index));
-        param_values.push(Box::new(before.clone()));
-        param_index += 1;
+        if !before.trim().is_empty() {
+            where_clauses.push(format!("rr.started_at <= ?{}", param_index));
+            param_values.push(Box::new(before.trim().to_string()));
+            param_index += 1;
+        }
+    }
+
+    if let Some(ref search) = filter.search {
+        let trimmed = search.trim();
+        if !trimmed.is_empty() {
+            let pattern = format!("%{}%", escape_like(trimmed).to_lowercase());
+            where_clauses.push(format!(
+                "(
+                  LOWER(COALESCE(rr.id, '')) LIKE ?{0}
+                  OR LOWER(COALESCE(rr.request_id, '')) LIKE ?{0}
+                  OR LOWER(COALESCE(rr.session_id, '')) LIKE ?{0}
+                  OR LOWER(COALESCE(s.cwd, '')) LIKE ?{0}
+                  OR LOWER(COALESCE(s.entrypoint, '')) LIKE ?{0}
+                )",
+                param_index
+            ));
+            param_values.push(Box::new(pattern));
+            param_index += 1;
+        }
     }
 
     let where_sql = if where_clauses.is_empty() {
@@ -1139,6 +1241,7 @@ pub fn list_filtered_request_records(
     } else {
         format!("WHERE {}", where_clauses.join(" AND "))
     };
+    let order_sql = request_filter_order_sql(filter);
 
     let summary_sql = format!(
         "
@@ -1149,6 +1252,9 @@ pub fn list_filtered_request_records(
           COALESCE(SUM(rr.output_tokens), 0),
           COALESCE(SUM(rr.reasoning_tokens), 0)
         FROM request_records rr
+        LEFT JOIN sessions s
+          ON rr.provider = s.provider
+         AND rr.session_id = s.session_id
         {}
         ",
         where_sql
@@ -1202,7 +1308,7 @@ pub fn list_filtered_request_records(
           ON rr.provider = s.provider
          AND rr.session_id = s.session_id
         {}
-        ORDER BY {REQUEST_RECORDS_RECENT_ORDER}
+        ORDER BY {order_sql}
         LIMIT ?{} OFFSET ?{}
         ",
         where_sql,
@@ -1239,6 +1345,103 @@ pub fn list_filtered_request_records(
         limit,
         offset,
     })
+}
+
+fn normalized_filter_values<'a>(values: impl Iterator<Item = &'a str>) -> Vec<String> {
+    let mut out = Vec::new();
+    for value in values {
+        let trimmed = value.trim();
+        if !trimmed.is_empty() && !out.iter().any(|existing| existing == trimmed) {
+            out.push(trimmed.to_string());
+        }
+    }
+    out
+}
+
+fn push_string_list_params(
+    param_values: &mut Vec<Box<dyn rusqlite::types::ToSql>>,
+    param_index: &mut i32,
+    values: &[String],
+) -> Vec<String> {
+    values
+        .iter()
+        .map(|value| {
+            let placeholder = format!("?{}", *param_index);
+            param_values.push(Box::new(value.clone()));
+            *param_index += 1;
+            placeholder
+        })
+        .collect()
+}
+
+fn escape_like(value: &str) -> String {
+    value
+        .replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_")
+}
+
+fn request_filter_order_sql(filter: &RequestFilterInput) -> &'static str {
+    let direction = match filter.sort_dir.as_deref() {
+        Some("asc") => "ASC",
+        _ => "DESC",
+    };
+
+    match (filter.sort_by.as_deref(), direction) {
+        (Some("startedAt"), "ASC") => {
+            "
+            CASE WHEN COALESCE(rr.started_at, rr.finished_at) IS NULL THEN 1 ELSE 0 END ASC,
+            unixepoch(COALESCE(rr.started_at, rr.finished_at)) ASC,
+            COALESCE(rr.started_at, rr.finished_at) ASC,
+            rr.updated_at ASC
+        "
+        }
+        (Some("tokens"), "ASC") => {
+            "
+            (COALESCE(rr.input_tokens, 0) + COALESCE(rr.output_tokens, 0)) ASC,
+            rr.started_at DESC,
+            rr.updated_at DESC
+        "
+        }
+        (Some("tokens"), _) => {
+            "
+            (COALESCE(rr.input_tokens, 0) + COALESCE(rr.output_tokens, 0)) DESC,
+            rr.started_at DESC,
+            rr.updated_at DESC
+        "
+        }
+        (Some("duration"), "ASC") => {
+            "
+            CASE WHEN rr.duration_ms IS NULL THEN 1 ELSE 0 END ASC,
+            rr.duration_ms ASC,
+            rr.started_at DESC,
+            rr.updated_at DESC
+        "
+        }
+        (Some("duration"), _) => {
+            "
+            CASE WHEN rr.duration_ms IS NULL THEN 1 ELSE 0 END ASC,
+            rr.duration_ms DESC,
+            rr.started_at DESC,
+            rr.updated_at DESC
+        "
+        }
+        (Some("model"), "ASC") => {
+            "
+            LOWER(COALESCE(rr.model, '')) ASC,
+            rr.started_at DESC,
+            rr.updated_at DESC
+        "
+        }
+        (Some("model"), _) => {
+            "
+            LOWER(COALESCE(rr.model, '')) DESC,
+            rr.started_at DESC,
+            rr.updated_at DESC
+        "
+        }
+        _ => REQUEST_FILTER_SORT_STARTED_DESC,
+    }
 }
 
 pub fn get_request_record_detail(

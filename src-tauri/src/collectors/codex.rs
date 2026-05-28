@@ -71,7 +71,9 @@ impl CodexCollector {
         Self::import_sessions_since(None)
     }
 
-    pub fn import_sessions_since(after_time: Option<chrono::DateTime<chrono::Utc>>) -> Result<CodexImportResult, String> {
+    pub fn import_sessions_since(
+        after_time: Option<chrono::DateTime<chrono::Utc>>,
+    ) -> Result<CodexImportResult, String> {
         let data_dir = default_codex_sessions_dir()?;
         if !data_dir.exists() {
             return Ok(CodexImportResult {

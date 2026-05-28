@@ -12,7 +12,7 @@ use crate::models::{
     ClaudeCodeSyncSummary, ClaudeOverview, CodexOverview, CodexSyncSummary, CombinedTodayUsage,
     CombinedUsage, DatabaseHealth, DatabaseSummary, ManagedLaunchInput, ManagedLaunchResult,
     PaginatedRequestRecords, ProviderProfileRecord, ProviderProfileUpsertInput, RequestFilterInput,
-    RequestRecordDetail, UsageHistogram,
+    RequestFilterOptions, RequestRecordDetail, UsageHistogram,
 };
 
 const DATABASE_FILE: &str = "countdown.db";
@@ -183,6 +183,11 @@ pub fn list_filtered_requests(
 pub fn get_request_detail(app: &AppHandle, id: String) -> Result<RequestRecordDetail, String> {
     let connection = open_connection(app)?;
     repository::get_request_record_detail(&connection, &id)
+}
+
+pub fn request_filter_options(app: &AppHandle) -> Result<RequestFilterOptions, String> {
+    let connection = open_connection(app)?;
+    repository::get_request_filter_options(&connection)
 }
 
 pub(crate) fn open_connection(app: &AppHandle) -> Result<Connection, String> {

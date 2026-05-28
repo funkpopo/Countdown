@@ -65,7 +65,9 @@ impl ClaudeCodeCollector {
         Self::import_sessions_since(None)
     }
 
-    pub fn import_sessions_since(after_time: Option<chrono::DateTime<chrono::Utc>>) -> Result<ClaudeImportResult, String> {
+    pub fn import_sessions_since(
+        after_time: Option<chrono::DateTime<chrono::Utc>>,
+    ) -> Result<ClaudeImportResult, String> {
         let data_dir = default_claude_data_dir()?;
         if !data_dir.exists() {
             return Ok(ClaudeImportResult {

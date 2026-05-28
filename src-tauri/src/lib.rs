@@ -19,7 +19,7 @@ use app::commands::{
     get_usage_histogram,
 };
 use app::commands::{get_compat_api_status, start_compat_api_server, stop_compat_api_server};
-use app::commands::{get_request_detail, list_filtered_requests};
+use app::commands::{get_request_detail, get_request_filter_options, list_filtered_requests};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -57,6 +57,7 @@ pub fn run() {
             get_combined_usage_total,
             get_usage_histogram,
             list_filtered_requests,
+            get_request_filter_options,
             get_request_detail,
             start_compat_api_server,
             stop_compat_api_server,

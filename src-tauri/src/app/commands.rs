@@ -6,8 +6,8 @@ use crate::models::{
     BootstrapInfo, ClaudeOverview, CodexOverview, CombinedTodayUsage, CombinedUsage,
     CompatApiStatus, DatabaseHealth, DatabaseSummary, DateRangeInput, ManagedLaunchInput,
     ManagedLaunchResult, PaginatedRequestRecords, ProviderProfileRecord,
-    ProviderProfileUpsertInput, RequestFilterInput, RequestRecordDetail, UsageHistogram,
-    UsageHistogramInput,
+    ProviderProfileUpsertInput, RequestFilterInput, RequestFilterOptions, RequestRecordDetail,
+    UsageHistogram, UsageHistogramInput,
 };
 
 #[tauri::command]
@@ -149,6 +149,12 @@ pub fn list_filtered_requests(
 pub fn get_request_detail(app: AppHandle, id: String) -> Result<RequestRecordDetail, String> {
     db::initialize(&app)?;
     db::get_request_detail(&app, id)
+}
+
+#[tauri::command]
+pub fn get_request_filter_options(app: AppHandle) -> Result<RequestFilterOptions, String> {
+    db::initialize(&app)?;
+    db::request_filter_options(&app)
 }
 
 #[tauri::command]

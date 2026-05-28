@@ -20,6 +20,12 @@
   min-width: 0;
 }
 
+.header-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .requests-header h1 {
   margin: 0;
   font-size: 1.25rem;
@@ -118,6 +124,10 @@
   min-width: 180px;
 }
 
+.filter-group.wide {
+  flex-basis: 100%;
+}
+
 .filter-group label {
   color: hsl(var(--muted));
   font-size: 0.75rem;
@@ -134,6 +144,10 @@
   background: hsl(var(--background));
   color: hsl(var(--foreground));
   font-size: 0.875rem;
+}
+
+.filter-group select[multiple] {
+  min-height: 132px;
 }
 
 .filter-group select:focus,

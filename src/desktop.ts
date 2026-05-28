@@ -130,12 +130,24 @@ export type RequestRecordDetail = {
 
 export type RequestFilterInput = {
   provider?: string;
+  providers?: string[];
   model?: string;
+  modelQuery?: string;
   isStream?: boolean;
+  status?: string;
+  search?: string;
+  sortBy?: "startedAt" | "tokens" | "duration" | "model";
+  sortDir?: "asc" | "desc";
   startedAfter?: string;
   startedBefore?: string;
   limit?: number;
   offset?: number;
+};
+
+export type RequestFilterOptions = {
+  providers: string[];
+  models: string[];
+  statuses: string[];
 };
 
 export type PaginatedRequestRecords = {
@@ -316,6 +328,10 @@ export async function listFilteredRequests(
   filter: RequestFilterInput,
 ): Promise<PaginatedRequestRecords> {
   return invoke<PaginatedRequestRecords>("list_filtered_requests", { filter });
+}
+
+export async function getRequestFilterOptions(): Promise<RequestFilterOptions> {
+  return invoke<RequestFilterOptions>("get_request_filter_options");
 }
 
 export async function getRequestDetail(id: string): Promise<RequestRecordDetail> {

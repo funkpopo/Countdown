@@ -381,12 +381,26 @@ pub struct RequestRecordDetail {
 #[serde(rename_all = "camelCase")]
 pub struct RequestFilterInput {
     pub provider: Option<String>,
+    pub providers: Option<Vec<String>>,
     pub model: Option<String>,
+    pub model_query: Option<String>,
     pub is_stream: Option<bool>,
+    pub status: Option<String>,
+    pub search: Option<String>,
+    pub sort_by: Option<String>,
+    pub sort_dir: Option<String>,
     pub started_after: Option<String>,
     pub started_before: Option<String>,
     pub limit: Option<i64>,
     pub offset: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RequestFilterOptions {
+    pub providers: Vec<String>,
+    pub models: Vec<String>,
+    pub statuses: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]

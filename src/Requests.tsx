@@ -1,8 +1,10 @@
 import { useEffect, useState, useTransition } from "react";
 import {
+  getRequestFilterOptions,
   listFilteredRequests,
   getRequestDetail,
   type RequestFilterInput,
+  type RequestFilterOptions,
   type RequestRecordListItem,
   type RequestRecordDetail,
   type PaginatedRequestRecords,
@@ -57,6 +59,80 @@ function formatJsonSummary(value: string) {
   } catch {
     return value;
   }
+}
+
+const FILTER_STORAGE_KEY = "countdown.requestFilters.v1";
+
+type RequestSortBy = NonNullable<RequestFilterInput["sortBy"]>;
+type RequestSortDir = NonNullable<RequestFilterInput["sortDir"]>;
+
+type RequestFilterState = RequestFilterInput & {
+  providers: string[];
+  search: string;
+  status: string;
+  sortBy: RequestSortBy;
+  sortDir: RequestSortDir;
+  startedAfter: string;
+  startedBefore: string;
+  model: string;
+  modelQuery: string;
+};
+
+const DEFAULT_FILTER_STATE: RequestFilterState = {
+  providers: [],
+  search: "",
+  status: "",
+  sortBy: "startedAt",
+  sortDir: "desc",
+  startedAfter: "",
+  startedBefore: "",
+  model: "",
+  modelQuery: "",
+  isStream: undefined,
+  limit: 50,
+  offset: 0,
+};
+
+function loadSavedFilters(): RequestFilterState {
+  if (typeof window === "undefined") {
+    return DEFAULT_FILTER_STATE;
+  }
+
+  try {
+    const raw = window.localStorage.getItem(FILTER_STORAGE_KEY);
+    if (!raw) {
+      return DEFAULT_FILTER_STATE;
+    }
+
+    const parsed = JSON.parse(raw) as Partial<RequestFilterState>;
+    return {
+      ...DEFAULT_FILTER_STATE,
+      ...parsed,
+      providers: Array.isArray(parsed.providers) ? parsed.providers.filter((value): value is string => typeof value === "string") : [],
+      search: typeof parsed.search === "string" ? parsed.search : "",
+      status: typeof parsed.status === "string" ? parsed.status : "",
+      sortBy: parsed.sortBy === "tokens" || parsed.sortBy === "duration" || parsed.sortBy === "model" ? parsed.sortBy : "startedAt",
+      sortDir: parsed.sortDir === "asc" ? "asc" : "desc",
+      startedAfter: typeof parsed.startedAfter === "string" ? parsed.startedAfter : "",
+      startedBefore: typeof parsed.startedBefore === "string" ? parsed.startedBefore : "",
+      model: typeof parsed.model === "string" ? parsed.model : "",
+      modelQuery: typeof parsed.modelQuery === "string" ? parsed.modelQuery : "",
+      isStream: typeof parsed.isStream === "boolean" ? parsed.isStream : undefined,
+      limit: typeof parsed.limit === "number" ? parsed.limit : 50,
+      offset: typeof parsed.offset === "number" ? parsed.offset : 0,
+      provider: typeof parsed.provider === "string" && parsed.provider ? parsed.provider : undefined,
+    };
+  } catch {
+    return DEFAULT_FILTER_STATE;
+  }
+}
+
+function saveFilters(filter: RequestFilterState) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.localStorage.setItem(FILTER_STORAGE_KEY, JSON.stringify(filter));
 }
 
 function RequestDetailDrawer({
@@ -238,10 +314,8 @@ function renderRequestRow(
 
 function Requests() {
   const { t } = useLanguage();
-  const [filter, setFilter] = useState<RequestFilterInput>({
-    limit: 50,
-    offset: 0,
-  });
+  const [filter, setFilter] = useState<RequestFilterState>(() => loadSavedFilters());
+  const [filterOptions, setFilterOptions] = useState<RequestFilterOptions | null>(null);
   const [data, setData] = useState<PaginatedRequestRecords | null>(null);
   const [selectedDetail, setSelectedDetail] = useState<RequestRecordDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -261,6 +335,18 @@ function Requests() {
       }
     });
   };
+
+  useEffect(() => {
+    void getRequestFilterOptions()
+      .then(setFilterOptions)
+      .catch(() => {
+        setFilterOptions({ providers: [], models: [], statuses: [] });
+      });
+  }, []);
+
+  useEffect(() => {
+    saveFilters(filter);
+  }, [filter]);
 
   useEffect(() => {
     refresh();
@@ -288,12 +374,55 @@ function Requests() {
     setFilter((prev) => ({ ...prev, provider, offset: 0 }));
   };
 
+  const handleProvidersChange = (providers: string[]) => {
+    setFilter((prev) => ({ ...prev, providers, offset: 0 }));
+  };
+
   const handleModelChange = (model: string | undefined) => {
-    setFilter((prev) => ({ ...prev, model, offset: 0 }));
+    setFilter((prev) => ({ ...prev, model: model ?? "", offset: 0 }));
+  };
+
+  const handleModelQueryChange = (modelQuery: string) => {
+    setFilter((prev) => ({ ...prev, modelQuery, offset: 0 }));
+  };
+
+  const handleSearchChange = (search: string) => {
+    setFilter((prev) => ({ ...prev, search, offset: 0 }));
   };
 
   const handleStreamChange = (isStream: boolean | undefined) => {
     setFilter((prev) => ({ ...prev, isStream, offset: 0 }));
+  };
+
+  const handleStatusChange = (status: string) => {
+    setFilter((prev) => ({ ...prev, status, offset: 0 }));
+  };
+
+  const handleDateChange = (key: "startedAfter" | "startedBefore", value: string) => {
+    setFilter((prev) => ({ ...prev, [key]: value, offset: 0 }));
+  };
+
+  const handleSortChange = (sortBy: RequestSortBy) => {
+    setFilter((prev) => ({
+      ...prev,
+      sortBy,
+      offset: 0,
+    }));
+  };
+
+  const handleSortDirChange = (sortDir: RequestSortDir) => {
+    setFilter((prev) => ({
+      ...prev,
+      sortDir,
+      offset: 0,
+    }));
+  };
+
+  const handleResetFilters = () => {
+    setFilter((prev) => ({
+      ...DEFAULT_FILTER_STATE,
+      limit: prev.limit,
+    }));
   };
 
   const handleNextPage = () => {
@@ -312,14 +441,50 @@ function Requests() {
     <div className="requests-page">
       <div className="requests-header">
         <h1>{t("requests.title")}</h1>
-        <button type="button" onClick={refresh} disabled={isPending}>
-          {t("requests.refresh")}
-        </button>
+        <div className="header-actions">
+          <button type="button" className="secondary" onClick={handleResetFilters} disabled={isPending}>
+            {t("requests.reset")}
+          </button>
+          <button type="button" onClick={refresh} disabled={isPending}>
+            {t("requests.refresh")}
+          </button>
+        </div>
       </div>
 
       {error ? <section className="notice error">{error}</section> : null}
 
       <section className="filters-panel">
+        <div className="filter-group wide">
+          <label htmlFor="request-search">{t("filter.search")}</label>
+          <input
+            id="request-search"
+            type="search"
+            placeholder={t("filter.searchPlaceholder")}
+            value={filter.search}
+            onChange={(e) => handleSearchChange(e.target.value)}
+          />
+        </div>
+
+        <div className="filter-group">
+          <label htmlFor="started-after">{t("filter.startedAfter")}</label>
+          <input
+            id="started-after"
+            type="date"
+            value={filter.startedAfter}
+            onChange={(e) => handleDateChange("startedAfter", e.target.value)}
+          />
+        </div>
+
+        <div className="filter-group">
+          <label htmlFor="started-before">{t("filter.startedBefore")}</label>
+          <input
+            id="started-before"
+            type="date"
+            value={filter.startedBefore}
+            onChange={(e) => handleDateChange("startedBefore", e.target.value)}
+          />
+        </div>
+
         <div className="filter-group">
           <label htmlFor="provider-filter">{t("filter.provider")}</label>
           <select
@@ -328,10 +493,29 @@ function Requests() {
             onChange={(e) => handleProviderChange(e.target.value || undefined)}
           >
             <option value="">{t("filter.allProviders")}</option>
-            <option value="claude_code">Claude Code</option>
-            <option value="codex">Codex</option>
-            <option value="openai_compat">OpenAI Compat</option>
-            <option value="anthropic_compat">Anthropic Compat</option>
+            {(filterOptions?.providers ?? []).map((provider) => (
+              <option key={provider} value={provider}>
+                {provider}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="filter-group">
+          <label htmlFor="provider-multi">{t("filter.providers")}</label>
+          <select
+            id="provider-multi"
+            multiple
+            value={filter.providers}
+            onChange={(e) =>
+              handleProvidersChange(Array.from(e.currentTarget.selectedOptions, (option) => option.value))
+            }
+          >
+            {(filterOptions?.providers ?? []).map((provider) => (
+              <option key={provider} value={provider}>
+                {provider}
+              </option>
+            ))}
           </select>
         </div>
 
@@ -351,13 +535,64 @@ function Requests() {
         </div>
 
         <div className="filter-group">
+          <label htmlFor="status-filter">{t("filter.status")}</label>
+          <select
+            id="status-filter"
+            value={filter.status}
+            onChange={(e) => handleStatusChange(e.target.value)}
+          >
+            <option value="">{t("filter.allStatuses")}</option>
+            <option value="success">{t("status.success")}</option>
+            <option value="completed">{t("status.completed")}</option>
+            <option value="error_*">{t("status.errorAny")}</option>
+            <option value="incomplete">{t("status.incomplete")}</option>
+            {(filterOptions?.statuses ?? [])
+              .filter((status) => !["success", "completed", "error_*", "incomplete"].includes(status))
+              .map((status) => (
+                <option key={status} value={status}>
+                  {status}
+                </option>
+              ))}
+          </select>
+        </div>
+
+        <div className="filter-group">
+          <label htmlFor="sort-by">{t("filter.sortBy")}</label>
+          <select id="sort-by" value={filter.sortBy} onChange={(e) => handleSortChange(e.target.value as RequestSortBy)}>
+            <option value="startedAt">{t("sort.startedAt")}</option>
+            <option value="tokens">{t("sort.tokens")}</option>
+            <option value="duration">{t("sort.duration")}</option>
+            <option value="model">{t("sort.model")}</option>
+          </select>
+        </div>
+
+        <div className="filter-group">
+          <label htmlFor="sort-dir">{t("filter.sortDir")}</label>
+          <select id="sort-dir" value={filter.sortDir} onChange={(e) => handleSortDirChange(e.target.value as RequestSortDir)}>
+            <option value="desc">{t("sort.desc")}</option>
+            <option value="asc">{t("sort.asc")}</option>
+          </select>
+        </div>
+
+        <div className="filter-group wide">
           <label htmlFor="model-filter">{t("filter.model")}</label>
           <input
             id="model-filter"
             type="text"
             placeholder={t("filter.modelPlaceholder")}
-            value={filter.model ?? ""}
-            onChange={(e) => handleModelChange(e.target.value || undefined)}
+            value={filter.model}
+            onChange={(e) => handleModelChange(e.target.value)}
+          />
+        </div>
+
+        <div className="filter-group wide">
+          <label htmlFor="model-query">{t("filter.modelQuery")}</label>
+          <input
+            id="model-query"
+            type="text"
+            placeholder={t("filter.modelQueryPlaceholder")}
+            value={filter.modelQuery}
+            onChange={(e) => handleModelQueryChange(e.target.value)}
           />
         </div>
       </section>
