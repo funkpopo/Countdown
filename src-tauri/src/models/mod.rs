@@ -74,6 +74,80 @@ pub struct ProviderProfileUpsertInput {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ProviderRuntimeStatus {
+    pub provider_key: String,
+    pub available: bool,
+    pub request_count: i64,
+    pub error_count: i64,
+    pub avg_duration_ms: Option<f64>,
+    pub last_request_at: Option<String>,
+    pub last_error_at: Option<String>,
+    pub last_error_text: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderHealthCheckResult {
+    pub provider_key: String,
+    pub display_name: String,
+    pub checked_at: String,
+    pub available: bool,
+    pub status_code: Option<u16>,
+    pub latency_ms: Option<i64>,
+    pub error_text: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PerformanceMetricSummary {
+    pub request_count: i64,
+    pub error_count: i64,
+    pub error_rate: f64,
+    pub avg_ttft_ms: Option<f64>,
+    pub p95_ttft_ms: Option<i64>,
+    pub avg_duration_ms: Option<f64>,
+    pub p95_duration_ms: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderModelPerformance {
+    pub provider: String,
+    pub model: String,
+    pub request_count: i64,
+    pub error_count: i64,
+    pub error_rate: f64,
+    pub avg_ttft_ms: Option<f64>,
+    pub p95_ttft_ms: Option<i64>,
+    pub avg_duration_ms: Option<f64>,
+    pub p95_duration_ms: Option<i64>,
+    pub stability_score: f64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RequestTrendBucket {
+    pub bucket: String,
+    pub request_count: i64,
+    pub error_count: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PerformanceQualitySummary {
+    pub generated_at: String,
+    pub overall: PerformanceMetricSummary,
+    pub provider_model: Vec<ProviderModelPerformance>,
+    pub stream: PerformanceMetricSummary,
+    pub non_stream: PerformanceMetricSummary,
+    pub recent_one_hour: Vec<RequestTrendBucket>,
+    pub recent_twenty_four_hours: Vec<RequestTrendBucket>,
+    pub slow_requests: Vec<RequestRecordListItem>,
+    pub failed_requests: Vec<RequestRecordListItem>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DatabaseSummary {
     pub schema_version: Option<String>,
     pub initialized_at: Option<String>,

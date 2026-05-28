@@ -1,6 +1,9 @@
 import { useEffect, useState, useTransition } from "react";
 import {
   listProviderProfiles,
+  getProviderRuntimeStatuses,
+  checkProviderHealth,
+  checkAllProviderHealth,
   saveProviderProfile,
   saveProviderProfilesBatch,
   deleteProviderProfile,
@@ -10,6 +13,8 @@ import {
   type CompatApiStatus,
   type ProviderProfileRecord,
   type ProviderProfileUpsertInput,
+  type ProviderRuntimeStatus,
+  type ProviderHealthCheckResult,
 } from "./desktop";
 import { useLanguage, type Language } from "./i18n";
 import "./Settings.css";
@@ -17,6 +22,11 @@ import "./Settings.css";
 type EditableProviderProfile = ProviderProfileUpsertInput & {
   modelPrefixesText: string;
   modelsText: string;
+  routePriority: number;
+  requestsPerMinute: number;
+  dailyTokenBudget: number;
+  retryMaxAttempts: number;
+  retryBackoffMs: number;
 };
 
 function normalizeNullableText(value: unknown): string | null {
@@ -82,12 +92,20 @@ function serializeRoutingExtra(
   baseExtraJson: string | null | undefined,
   modelPrefixes: string[],
   models: string[],
+  routePriority: number,
+  requestsPerMinute: number,
+  dailyTokenBudget: number,
+  retryMaxAttempts: number,
+  retryBackoffMs: number,
 ): string | null {
   const extra = parseExtraJson(baseExtraJson);
 
   delete extra.model_prefixes;
   delete extra.modelPrefixes;
   delete extra.models;
+  delete extra.rate_limit;
+  delete extra.rateLimit;
+  delete extra.retry;
 
   if (modelPrefixes.length > 0) {
     extra.model_prefixes = modelPrefixes;
@@ -95,6 +113,20 @@ function serializeRoutingExtra(
 
   if (models.length > 0) {
     extra.models = models;
+  }
+
+  extra.route_priority = routePriority;
+  if (requestsPerMinute > 0 || dailyTokenBudget > 0) {
+    extra.rate_limit = {
+      ...(requestsPerMinute > 0 ? { requests_per_minute: requestsPerMinute } : {}),
+      ...(dailyTokenBudget > 0 ? { daily_token_budget: dailyTokenBudget } : {}),
+    };
+  }
+  if (retryMaxAttempts > 1 || retryBackoffMs > 0) {
+    extra.retry = {
+      max_attempts: Math.max(1, retryMaxAttempts),
+      backoff_ms: Math.max(50, retryBackoffMs || 250),
+    };
   }
 
   return Object.keys(extra).length > 0 ? JSON.stringify(extra) : null;
@@ -107,6 +139,11 @@ function createEditableProfile(
     ...profile,
     modelPrefixesText: readModelPrefixes(profile.extraJson).join(", "),
     modelsText: readExactModels(profile.extraJson).join(", "),
+    routePriority: readRoutePriority(profile.extraJson),
+    requestsPerMinute: readRequestsPerMinute(profile.extraJson),
+    dailyTokenBudget: readDailyTokenBudget(profile.extraJson),
+    retryMaxAttempts: readRetryMaxAttempts(profile.extraJson),
+    retryBackoffMs: readRetryBackoffMs(profile.extraJson),
   };
 }
 
@@ -119,8 +156,51 @@ function createEmptyProfile(): EditableProviderProfile {
     apiFormat: "openai",
     apiKeyEnv: null,
     enabled: true,
-    extraJson: null,
+    extraJson: serializeRoutingExtra(null, [], [], 0, 0, 0, 1, 250),
   });
+}
+
+function readRoutePriority(extraJson: string | null | undefined): number {
+  const extra = parseExtraJson(extraJson);
+  const raw = extra.route_priority ?? extra.routePriority;
+  const priority = typeof raw === "number" ? raw : Number(raw);
+  return Number.isFinite(priority) ? priority : 0;
+}
+
+function readNestedNumber(extraJson: string | null | undefined, objectKeys: string[], valueKeys: string[]): number {
+  const extra = parseExtraJson(extraJson);
+  for (const objectKey of objectKeys) {
+    const container = extra[objectKey];
+    if (container && typeof container === "object" && !Array.isArray(container)) {
+      for (const valueKey of valueKeys) {
+        const raw = (container as Record<string, unknown>)[valueKey];
+        const value = typeof raw === "number" ? raw : Number(raw);
+        if (Number.isFinite(value) && value > 0) return value;
+      }
+    }
+  }
+  for (const valueKey of valueKeys) {
+    const raw = extra[valueKey];
+    const value = typeof raw === "number" ? raw : Number(raw);
+    if (Number.isFinite(value) && value > 0) return value;
+  }
+  return 0;
+}
+
+function readRequestsPerMinute(extraJson: string | null | undefined): number {
+  return readNestedNumber(extraJson, ["rate_limit", "rateLimit"], ["requests_per_minute", "requestsPerMinute"]);
+}
+
+function readDailyTokenBudget(extraJson: string | null | undefined): number {
+  return readNestedNumber(extraJson, ["rate_limit", "rateLimit"], ["daily_token_budget", "dailyTokenBudget"]);
+}
+
+function readRetryMaxAttempts(extraJson: string | null | undefined): number {
+  return readNestedNumber(extraJson, ["retry"], ["max_attempts", "maxAttempts", "retry_max_attempts", "retryMaxAttempts"]) || 1;
+}
+
+function readRetryBackoffMs(extraJson: string | null | undefined): number {
+  return readNestedNumber(extraJson, ["retry"], ["backoff_ms", "backoffMs", "retry_backoff_ms", "retryBackoffMs"]) || 250;
 }
 
 function normalizeApiFormat(value: unknown): "openai" | "anthropic" | "custom" {
@@ -177,7 +257,16 @@ function normalizeBatchEntry(entry: unknown): ProviderProfileUpsertInput {
     apiFormat: normalizeApiFormat(record.apiFormat ?? record.api_format ?? record.protocol ?? record.format),
     apiKeyEnv: normalizeNullableText(record.apiKeyEnv ?? record.api_key_env),
     enabled: typeof record.enabled === "boolean" ? record.enabled : true,
-    extraJson: serializeRoutingExtra(rawExtraJson, modelPrefixes, models),
+    extraJson: serializeRoutingExtra(
+      rawExtraJson,
+      modelPrefixes,
+      models,
+      Number(record.routePriority ?? 0),
+      Number(record.requestsPerMinute ?? record.requests_per_minute ?? 0),
+      Number(record.dailyTokenBudget ?? record.daily_token_budget ?? 0),
+      Number(record.retryMaxAttempts ?? record.retry_max_attempts ?? 1),
+      Number(record.retryBackoffMs ?? record.retry_backoff_ms ?? 250),
+    ),
   };
 }
 
@@ -244,6 +333,7 @@ function profileToEditorJson(profile: EditableProviderProfile): string {
     displayName: profile.displayName,
     providerKey: profile.providerKey,
     apiFormat: profile.apiFormat,
+    routePriority: profile.routePriority,
   };
 
   if (profile.baseUrl) obj.baseUrl = profile.baseUrl;
@@ -251,6 +341,10 @@ function profileToEditorJson(profile: EditableProviderProfile): string {
   obj.enabled = profile.enabled;
   if (prefixes.length > 0) obj.modelPrefixes = prefixes;
   if (models.length > 0) obj.models = models;
+  if (profile.requestsPerMinute > 0) obj.requestsPerMinute = profile.requestsPerMinute;
+  if (profile.dailyTokenBudget > 0) obj.dailyTokenBudget = profile.dailyTokenBudget;
+  if (profile.retryMaxAttempts > 1) obj.retryMaxAttempts = profile.retryMaxAttempts;
+  if (profile.retryBackoffMs > 0) obj.retryBackoffMs = profile.retryBackoffMs;
   if (Object.keys(extra).length > 0) obj.extraJson = extra;
 
   return JSON.stringify(obj, null, 2);
@@ -291,9 +385,23 @@ function editorJsonToProfile(json: string): EditableProviderProfile {
     apiFormat: normalizeApiFormat(record.apiFormat),
     apiKeyEnv: normalizeNullableText(record.apiKeyEnv ?? record.api_key_env),
     enabled: typeof record.enabled === "boolean" ? record.enabled : true,
-    extraJson: serializeRoutingExtra(rawExtraJson, modelPrefixes, models),
+    extraJson: serializeRoutingExtra(
+      rawExtraJson,
+      modelPrefixes,
+      models,
+      Number(record.routePriority ?? 0),
+      Number(record.requestsPerMinute ?? record.requests_per_minute ?? readRequestsPerMinute(rawExtraJson)),
+      Number(record.dailyTokenBudget ?? record.daily_token_budget ?? readDailyTokenBudget(rawExtraJson)),
+      Number(record.retryMaxAttempts ?? record.retry_max_attempts ?? readRetryMaxAttempts(rawExtraJson)),
+      Number(record.retryBackoffMs ?? record.retry_backoff_ms ?? readRetryBackoffMs(rawExtraJson)),
+    ),
     modelPrefixesText: modelPrefixes.join(", "),
     modelsText: models.join(", "),
+    routePriority: readRoutePriority(rawExtraJson),
+    requestsPerMinute: Number(record.requestsPerMinute ?? record.requests_per_minute ?? readRequestsPerMinute(rawExtraJson)),
+    dailyTokenBudget: Number(record.dailyTokenBudget ?? record.daily_token_budget ?? readDailyTokenBudget(rawExtraJson)),
+    retryMaxAttempts: Number(record.retryMaxAttempts ?? record.retry_max_attempts ?? readRetryMaxAttempts(rawExtraJson)),
+    retryBackoffMs: Number(record.retryBackoffMs ?? record.retry_backoff_ms ?? readRetryBackoffMs(rawExtraJson)),
   };
 }
 
@@ -374,20 +482,27 @@ function Settings() {
   const [editingProfile, setEditingProfile] = useState<EditableProviderProfile | null>(null);
   const [editMode, setEditMode] = useState<"form" | "json">("form");
   const [jsonEditorText, setJsonEditorText] = useState("");
+  const [runtimeStatuses, setRuntimeStatuses] = useState<ProviderRuntimeStatus[]>([]);
+  const [healthResults, setHealthResults] = useState<ProviderHealthCheckResult[]>([]);
+  const [checkingProviderId, setCheckingProviderId] = useState<string | null>(null);
   const enabledProfiles = profiles.filter((profile) => profile.enabled);
   const openAiProfiles = profiles.filter((profile) => profile.apiFormat === "openai" || profile.apiFormat === "custom");
   const anthropicProfiles = profiles.filter((profile) => profile.apiFormat === "anthropic");
+  const runtimeStatusByProvider = new Map(runtimeStatuses.map((status) => [status.providerKey, status]));
+  const healthResultByProvider = new Map(healthResults.map((result) => [result.providerKey, result]));
 
   const refresh = () => {
     startTransition(async () => {
       try {
         setError(null);
-        const [profilesList, status] = await Promise.all([
+        const [profilesList, status, statuses] = await Promise.all([
           listProviderProfiles(),
           getCompatApiStatus(),
+          getProviderRuntimeStatuses(),
         ]);
         setProfiles(profilesList);
         setCompatStatus(status);
+        setRuntimeStatuses(statuses);
         if (status.listenAddress) {
           setListenAddress(status.listenAddress);
         }
@@ -516,6 +631,42 @@ function Settings() {
     });
   };
 
+  const handleCheckProviderHealth = async (profile: ProviderProfileRecord) => {
+    try {
+      setError(null);
+      setSuccess(null);
+      setCheckingProviderId(profile.id);
+      const result = await checkProviderHealth(profile.id);
+      setHealthResults((current) => [
+        result,
+        ...current.filter((item) => item.providerKey !== result.providerKey),
+      ]);
+      setSuccess(
+        result.available
+          ? t("settings.health.ok", profile.displayName)
+          : t("settings.health.failed", profile.displayName),
+      );
+    } catch (healthError) {
+      setError(healthError instanceof Error ? healthError.message : t("settings.health.error"));
+    } finally {
+      setCheckingProviderId(null);
+    }
+  };
+
+  const handleCheckAllProviderHealth = async () => {
+    startTransition(async () => {
+      try {
+        setError(null);
+        setSuccess(null);
+        const results = await checkAllProviderHealth();
+        setHealthResults(results);
+        setSuccess(t("settings.health.checkedAll", String(results.length)));
+      } catch (healthError) {
+        setError(healthError instanceof Error ? healthError.message : t("settings.health.error"));
+      }
+    });
+  };
+
   const handleLanguageChange = (lang: Language) => {
     setLanguage(lang);
   };
@@ -537,6 +688,7 @@ function Settings() {
       if (p.baseUrl) obj.baseUrl = p.baseUrl;
       if (p.apiKeyEnv) obj.apiKeyEnv = p.apiKeyEnv;
       obj.enabled = p.enabled;
+      obj.routePriority = readRoutePriority(p.extraJson);
       if (prefixes.length > 0) obj.modelPrefixes = prefixes;
       if (models.length > 0) obj.models = models;
       if (Object.keys(extra).length > 0) obj.extraJson = extra;
@@ -651,6 +803,9 @@ function Settings() {
             </label>
             <button type="button" className="secondary" onClick={handleExportJson} disabled={profiles.length === 0}>
               {t("settings.exportJson")}
+            </button>
+            <button type="button" className="secondary" onClick={handleCheckAllProviderHealth} disabled={isPending || profiles.length === 0}>
+              {t("settings.health.checkAll")}
             </button>
           </div>
         </div>
@@ -768,10 +923,12 @@ function Settings() {
                 <th>{t("settings.table.format")}</th>
                 <th>{t("settings.table.route")}</th>
                 <th>{t("settings.table.baseUrl")}</th>
-                <th>{t("settings.table.keyEnv")}</th>
-                <th>{t("settings.table.status")}</th>
-                <th>{t("settings.table.actions")}</th>
-              </tr>
+            <th>{t("settings.table.keyEnv")}</th>
+            <th>{t("settings.table.priority")}</th>
+            <th>{t("settings.table.runtime")}</th>
+            <th>{t("settings.table.status")}</th>
+            <th>{t("settings.table.actions")}</th>
+          </tr>
             </thead>
             <tbody>
               {profiles.map((profile) => (
@@ -786,6 +943,38 @@ function Settings() {
                   <td>{formatRouteSummary(profile, t)}</td>
                   <td className="mono">{profile.baseUrl ?? t("settings.defaultRoute")}</td>
                   <td className="mono">{profile.apiKeyEnv ?? "none"}</td>
+                  <td>{readRoutePriority(profile.extraJson)}</td>
+                  <td>
+                    {(() => {
+                      const runtime = runtimeStatusByProvider.get(profile.providerKey);
+                      const health = healthResultByProvider.get(profile.providerKey);
+                      if (!runtime && !health) {
+                        return t("settings.runtime.unknown");
+                      }
+
+                      return (
+                        <div className="runtime-cell">
+                          {health ? (
+                            <>
+                              <span className={`status-pill ${health.available ? "running" : "stopped"}`}>
+                                {health.available ? t("settings.runtime.available") : t("settings.runtime.unavailable")}
+                              </span>
+                              <span>{t("settings.health.latency", health.latencyMs == null ? t("n/a") : String(health.latencyMs))}</span>
+                              <span>{t("settings.health.statusCode", health.statusCode == null ? t("n/a") : String(health.statusCode))}</span>
+                              {health.errorText ? <span className="runtime-error">{health.errorText}</span> : null}
+                            </>
+                          ) : null}
+                          {runtime ? (
+                            <>
+                              <span>{t("settings.runtime.requests", String(runtime.requestCount))}</span>
+                              <span>{t("settings.runtime.errors", String(runtime.errorCount))}</span>
+                              <span>{t("settings.runtime.avgDuration", runtime.avgDurationMs ? runtime.avgDurationMs.toFixed(0) : t("n/a"))}</span>
+                            </>
+                          ) : null}
+                        </div>
+                      );
+                    })()}
+                  </td>
                   <td>
                     <span className={`status-pill ${profile.enabled ? "running" : "stopped"}`}>
                       {profile.enabled ? t("settings.enabled2") : t("settings.disabled")}
@@ -799,6 +988,14 @@ function Settings() {
                         onClick={() => { setEditingProfile(createEditableProfile(profile)); setEditMode("form"); }}
                       >
                         {t("settings.edit")}
+                      </button>
+                      <button
+                        type="button"
+                        className="secondary"
+                        onClick={() => handleCheckProviderHealth(profile)}
+                        disabled={checkingProviderId === profile.id}
+                      >
+                        {t("settings.health.check")}
                       </button>
                       <button
                         type="button"
@@ -849,6 +1046,11 @@ function ProfileForm({
         form.extraJson,
         splitList(form.modelPrefixesText),
         splitList(form.modelsText),
+        form.routePriority,
+        form.requestsPerMinute,
+        form.dailyTokenBudget,
+        form.retryMaxAttempts,
+        form.retryBackoffMs,
       ),
     });
   };
@@ -890,6 +1092,66 @@ function ProfileForm({
             <option value="anthropic">{t("settings.form.anthropic")}</option>
             <option value="custom">{t("settings.form.custom")}</option>
           </select>
+        </div>
+
+        <div className="settings-group">
+          <label htmlFor="routePriority">{t("settings.form.routePriority")}</label>
+          <input
+            id="routePriority"
+            type="number"
+            step="1"
+            value={form.routePriority}
+            onChange={(e) => setForm({ ...form, routePriority: Number(e.target.value) || 0 })}
+          />
+        </div>
+
+        <div className="settings-group">
+          <label htmlFor="requestsPerMinute">{t("settings.form.requestsPerMinute")}</label>
+          <input
+            id="requestsPerMinute"
+            type="number"
+            min="0"
+            step="1"
+            value={form.requestsPerMinute}
+            onChange={(e) => setForm({ ...form, requestsPerMinute: Number(e.target.value) || 0 })}
+          />
+        </div>
+
+        <div className="settings-group">
+          <label htmlFor="dailyTokenBudget">{t("settings.form.dailyTokenBudget")}</label>
+          <input
+            id="dailyTokenBudget"
+            type="number"
+            min="0"
+            step="1"
+            value={form.dailyTokenBudget}
+            onChange={(e) => setForm({ ...form, dailyTokenBudget: Number(e.target.value) || 0 })}
+          />
+        </div>
+
+        <div className="settings-group">
+          <label htmlFor="retryMaxAttempts">{t("settings.form.retryMaxAttempts")}</label>
+          <input
+            id="retryMaxAttempts"
+            type="number"
+            min="1"
+            max="5"
+            step="1"
+            value={form.retryMaxAttempts}
+            onChange={(e) => setForm({ ...form, retryMaxAttempts: Math.max(1, Number(e.target.value) || 1) })}
+          />
+        </div>
+
+        <div className="settings-group">
+          <label htmlFor="retryBackoffMs">{t("settings.form.retryBackoffMs")}</label>
+          <input
+            id="retryBackoffMs"
+            type="number"
+            min="50"
+            step="50"
+            value={form.retryBackoffMs}
+            onChange={(e) => setForm({ ...form, retryBackoffMs: Math.max(50, Number(e.target.value) || 250) })}
+          />
         </div>
 
         <div className="settings-group">

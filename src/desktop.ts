@@ -60,6 +60,68 @@ export type ProviderProfileUpsertInput = {
   extraJson: string | null;
 };
 
+export type ProviderRuntimeStatus = {
+  providerKey: string;
+  available: boolean;
+  requestCount: number;
+  errorCount: number;
+  avgDurationMs: number | null;
+  lastRequestAt: string | null;
+  lastErrorAt: string | null;
+  lastErrorText: string | null;
+};
+
+export type ProviderHealthCheckResult = {
+  providerKey: string;
+  displayName: string;
+  checkedAt: string;
+  available: boolean;
+  statusCode: number | null;
+  latencyMs: number | null;
+  errorText: string | null;
+};
+
+export type PerformanceMetricSummary = {
+  requestCount: number;
+  errorCount: number;
+  errorRate: number;
+  avgTtftMs: number | null;
+  p95TtftMs: number | null;
+  avgDurationMs: number | null;
+  p95DurationMs: number | null;
+};
+
+export type ProviderModelPerformance = {
+  provider: string;
+  model: string;
+  requestCount: number;
+  errorCount: number;
+  errorRate: number;
+  avgTtftMs: number | null;
+  p95TtftMs: number | null;
+  avgDurationMs: number | null;
+  p95DurationMs: number | null;
+  stabilityScore: number;
+};
+
+export type RequestTrendBucket = {
+  bucket: string;
+  requestCount: number;
+  errorCount: number;
+};
+
+export type PerformanceQualitySummary = {
+  generatedAt: string;
+  overall: PerformanceMetricSummary;
+  providerModel: ProviderModelPerformance[];
+  stream: PerformanceMetricSummary;
+  nonStream: PerformanceMetricSummary;
+  recentOneHour: RequestTrendBucket[];
+  recentTwentyFourHours: RequestTrendBucket[];
+  slowRequests: RequestRecordListItem[];
+  failedRequests: RequestRecordListItem[];
+};
+
 export type DatabaseSummary = {
   schemaVersion: string | null;
   initializedAt: string | null;
@@ -290,6 +352,22 @@ export async function getDatabaseSummary(): Promise<DatabaseSummary> {
 
 export async function listProviderProfiles(): Promise<ProviderProfileRecord[]> {
   return invoke<ProviderProfileRecord[]>("list_provider_profiles");
+}
+
+export async function getProviderRuntimeStatuses(): Promise<ProviderRuntimeStatus[]> {
+  return invoke<ProviderRuntimeStatus[]>("get_provider_runtime_statuses");
+}
+
+export async function getPerformanceQualitySummary(): Promise<PerformanceQualitySummary> {
+  return invoke<PerformanceQualitySummary>("get_performance_quality_summary");
+}
+
+export async function checkProviderHealth(providerId: string): Promise<ProviderHealthCheckResult> {
+  return invoke<ProviderHealthCheckResult>("check_provider_health", { providerId });
+}
+
+export async function checkAllProviderHealth(): Promise<ProviderHealthCheckResult[]> {
+  return invoke<ProviderHealthCheckResult[]>("check_all_provider_health");
 }
 
 export async function saveProviderProfile(

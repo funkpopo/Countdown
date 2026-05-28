@@ -8,6 +8,11 @@ mod models;
 mod tray;
 
 use app::commands::run_managed_launch;
+use app::commands::{
+    check_all_provider_health, check_provider_health, get_provider_runtime_statuses,
+    get_performance_quality_summary, get_request_detail, get_request_filter_options,
+    list_filtered_requests,
+};
 use app::commands::{database_healthcheck, get_bootstrap_info, initialize_local_database};
 use app::commands::{
     delete_provider_profile, list_provider_profiles, save_provider_profile,
@@ -19,7 +24,6 @@ use app::commands::{
     get_usage_histogram,
 };
 use app::commands::{get_compat_api_status, start_compat_api_server, stop_compat_api_server};
-use app::commands::{get_request_detail, get_request_filter_options, list_filtered_requests};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -59,6 +63,10 @@ pub fn run() {
             list_filtered_requests,
             get_request_filter_options,
             get_request_detail,
+            get_provider_runtime_statuses,
+            get_performance_quality_summary,
+            check_provider_health,
+            check_all_provider_health,
             start_compat_api_server,
             stop_compat_api_server,
             get_compat_api_status

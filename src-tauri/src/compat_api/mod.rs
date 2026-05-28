@@ -7,9 +7,15 @@ use axum::{
 };
 use chrono::Utc;
 use futures::{Stream, StreamExt};
-use reqwest::Client;
+use reqwest::{Client, Response as ReqwestResponse, StatusCode};
 use serde_json::json;
-use std::{convert::Infallible, net::SocketAddr, sync::Arc, time::Instant};
+use std::{
+    collections::{HashMap, VecDeque},
+    convert::Infallible,
+    net::SocketAddr,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 use tokio::sync::{oneshot, Mutex};
 use uuid::Uuid;
 
@@ -42,10 +48,68 @@ enum StreamTransform {
     OpenAIResponses,
 }
 
+struct UpstreamConfig {
+    profile_id: String,
+    provider_key: String,
+    base_url: String,
+    api_key: String,
+    rate_limit: ProviderRateLimitConfig,
+    retry: ProviderRetryConfig,
+}
+
+#[derive(Clone, Copy, Default)]
+struct ProviderRateLimitConfig {
+    requests_per_minute: Option<usize>,
+    daily_token_budget: Option<i64>,
+}
+
+#[derive(Clone, Copy)]
+struct ProviderRetryConfig {
+    max_attempts: usize,
+    backoff_ms: u64,
+}
+
+impl Default for ProviderRetryConfig {
+    fn default() -> Self {
+        Self {
+            max_attempts: 1,
+            backoff_ms: 250,
+        }
+    }
+}
+
+#[derive(Default)]
+struct RateLimitRuntime {
+    request_windows: HashMap<String, VecDeque<Instant>>,
+    token_usage: HashMap<String, TokenBudgetUsage>,
+}
+
+#[derive(Default)]
+struct TokenBudgetUsage {
+    date: String,
+    tokens: i64,
+}
+
+enum UpstreamRequestError {
+    Policy(String),
+    Network(reqwest::Error),
+}
+
+impl std::fmt::Display for UpstreamRequestError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Policy(message) => f.write_str(message),
+            Self::Network(error) => write!(f, "{error}"),
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct CompatApiState {
     pub app_handle: tauri::AppHandle,
     pub http_client: Client,
+    pub round_robin_counters: Arc<Mutex<HashMap<String, usize>>>,
+    rate_limits: Arc<Mutex<RateLimitRuntime>>,
 }
 
 #[derive(Clone)]
@@ -63,6 +127,8 @@ impl CompatApiServer {
             state: CompatApiState {
                 app_handle,
                 http_client: Client::new(),
+                round_robin_counters: Arc::new(Mutex::new(HashMap::new())),
+                rate_limits: Arc::new(Mutex::new(RateLimitRuntime::default())),
             },
             listen_address: Arc::new(Mutex::new(listen_address)),
             running: Arc::new(Mutex::new(false)),
@@ -244,9 +310,12 @@ async fn handle_responses(
     let request_id = Uuid::new_v4().to_string();
     let is_stream = req.stream.unwrap_or(false);
 
-    let base_url = resolve_upstream_url(&state, &req.model, UpstreamProtocol::OpenAI)
+    let upstream = resolve_upstream_config(&state, &req.model, UpstreamProtocol::OpenAI).await;
+    let base_url = upstream
+        .as_ref()
+        .map(|config| config.base_url.clone())
         .unwrap_or_else(|| "https://api.openai.com".to_string());
-    let api_key = resolve_api_key(&state, &req.model, UpstreamProtocol::OpenAI).unwrap_or_default();
+    let api_key = upstream.as_ref().map(|config| config.api_key.clone()).unwrap_or_default();
 
     if is_stream {
         let mut request_body = serde_json::json!({
@@ -276,6 +345,7 @@ async fn handle_responses(
                 ("Authorization".to_string(), format!("Bearer {}", api_key)),
                 ("Content-Type".to_string(), "application/json".to_string()),
             ],
+            upstream,
             StreamTransform::OpenAIResponses,
             serde_json::to_string(&req).ok(),
         )
@@ -297,14 +367,17 @@ async fn handle_responses(
         request_body["max_output_tokens"] = json!(max_tokens);
     }
 
-    let response = state
-        .http_client
-        .post(format!("{}/v1/responses", base_url))
-        .header("Authorization", format!("Bearer {}", api_key))
-        .header("Content-Type", "application/json")
-        .json(&request_body)
-        .send()
-        .await;
+    let response = send_upstream_json_with_policy(
+        &state,
+        upstream.as_ref(),
+        format!("{}/v1/responses", base_url),
+        vec![
+            ("Authorization".to_string(), format!("Bearer {}", api_key)),
+            ("Content-Type".to_string(), "application/json".to_string()),
+        ],
+        &request_body,
+    )
+    .await;
 
     let duration_ms = start_time.elapsed().as_millis() as i64;
 
@@ -322,6 +395,7 @@ async fn handle_responses(
                     .get("output_tokens")
                     .and_then(|v| v.as_i64())
                     .unwrap_or(0) as i64;
+                record_provider_token_usage(&state, upstream.as_ref(), input_tokens + output_tokens).await;
 
                 let record = RequestRecordUpsertRecord {
                     id: request_id.clone(),
@@ -477,9 +551,12 @@ async fn handle_chat_completions(
             .into_response();
     }
 
-    let base_url = resolve_upstream_url(&state, &req.model, UpstreamProtocol::OpenAI)
+    let upstream = resolve_upstream_config(&state, &req.model, UpstreamProtocol::OpenAI).await;
+    let base_url = upstream
+        .as_ref()
+        .map(|config| config.base_url.clone())
         .unwrap_or_else(|| "https://api.openai.com".to_string());
-    let api_key = resolve_api_key(&state, &req.model, UpstreamProtocol::OpenAI).unwrap_or_default();
+    let api_key = upstream.as_ref().map(|config| config.api_key.clone()).unwrap_or_default();
 
     if is_stream {
         let mut request_body = serde_json::json!({
@@ -509,6 +586,7 @@ async fn handle_chat_completions(
                 ("Authorization".to_string(), format!("Bearer {}", api_key)),
                 ("Content-Type".to_string(), "application/json".to_string()),
             ],
+            upstream,
             StreamTransform::OpenAIChatToOpenAIChat,
             serde_json::to_string(&req).ok(),
         )
@@ -530,14 +608,17 @@ async fn handle_chat_completions(
         request_body["max_tokens"] = json!(max_tokens);
     }
 
-    let response = state
-        .http_client
-        .post(format!("{}/v1/chat/completions", base_url))
-        .header("Authorization", format!("Bearer {}", api_key))
-        .header("Content-Type", "application/json")
-        .json(&request_body)
-        .send()
-        .await;
+    let response = send_upstream_json_with_policy(
+        &state,
+        upstream.as_ref(),
+        format!("{}/v1/chat/completions", base_url),
+        vec![
+            ("Authorization".to_string(), format!("Bearer {}", api_key)),
+            ("Content-Type".to_string(), "application/json".to_string()),
+        ],
+        &request_body,
+    )
+    .await;
 
     let duration_ms = start_time.elapsed().as_millis() as i64;
 
@@ -555,6 +636,7 @@ async fn handle_chat_completions(
                     .get("completion_tokens")
                     .and_then(|v| v.as_i64())
                     .unwrap_or(0) as i64;
+                record_provider_token_usage(&state, upstream.as_ref(), input_tokens + output_tokens).await;
 
                 let choices: Vec<OpenAIChatChoice> = body
                     .get("choices")
@@ -766,10 +848,12 @@ async fn handle_messages(
             .into_response();
     }
 
-    let base_url = resolve_upstream_url(&state, &req.model, UpstreamProtocol::Anthropic)
+    let upstream = resolve_upstream_config(&state, &req.model, UpstreamProtocol::Anthropic).await;
+    let base_url = upstream
+        .as_ref()
+        .map(|config| config.base_url.clone())
         .unwrap_or_else(|| "https://api.anthropic.com".to_string());
-    let api_key =
-        resolve_api_key(&state, &req.model, UpstreamProtocol::Anthropic).unwrap_or_default();
+    let api_key = upstream.as_ref().map(|config| config.api_key.clone()).unwrap_or_default();
 
     if is_stream {
         let mut request_body = serde_json::json!({
@@ -801,6 +885,7 @@ async fn handle_messages(
                 ("anthropic-version".to_string(), "2023-06-01".to_string()),
                 ("Content-Type".to_string(), "application/json".to_string()),
             ],
+            upstream,
             StreamTransform::AnthropicToAnthropic,
             serde_json::to_string(&req).ok(),
         )
@@ -823,15 +908,18 @@ async fn handle_messages(
         request_body["temperature"] = json!(temp);
     }
 
-    let response = state
-        .http_client
-        .post(format!("{}/v1/messages", base_url))
-        .header("x-api-key", api_key)
-        .header("anthropic-version", "2023-06-01")
-        .header("Content-Type", "application/json")
-        .json(&request_body)
-        .send()
-        .await;
+    let response = send_upstream_json_with_policy(
+        &state,
+        upstream.as_ref(),
+        format!("{}/v1/messages", base_url),
+        vec![
+            ("x-api-key".to_string(), api_key),
+            ("anthropic-version".to_string(), "2023-06-01".to_string()),
+            ("Content-Type".to_string(), "application/json".to_string()),
+        ],
+        &request_body,
+    )
+    .await;
 
     let duration_ms = start_time.elapsed().as_millis() as i64;
 
@@ -849,6 +937,7 @@ async fn handle_messages(
                     .get("output_tokens")
                     .and_then(|v| v.as_i64())
                     .unwrap_or(0) as i64;
+                record_provider_token_usage(&state, upstream.as_ref(), input_tokens + output_tokens).await;
 
                 let content: Vec<serde_json::Value> = body
                     .get("content")
@@ -986,9 +1075,12 @@ async fn handle_messages_via_openai(
     request_id: String,
     start_time: Instant,
 ) -> Response {
-    let base_url = resolve_upstream_url(&state, &req.model, UpstreamProtocol::OpenAI)
+    let upstream = resolve_upstream_config(&state, &req.model, UpstreamProtocol::OpenAI).await;
+    let base_url = upstream
+        .as_ref()
+        .map(|config| config.base_url.clone())
         .unwrap_or_else(|| "https://api.openai.com".to_string());
-    let api_key = resolve_api_key(&state, &req.model, UpstreamProtocol::OpenAI).unwrap_or_default();
+    let api_key = upstream.as_ref().map(|config| config.api_key.clone()).unwrap_or_default();
 
     let mut request_body = serde_json::json!({
         "model": req.model,
@@ -1016,20 +1108,24 @@ async fn handle_messages_via_openai(
                 ("Authorization".to_string(), format!("Bearer {}", api_key)),
                 ("Content-Type".to_string(), "application/json".to_string()),
             ],
+            upstream,
             StreamTransform::OpenAIChatToAnthropic,
             serde_json::to_string(&req).ok(),
         )
         .into_response();
     }
 
-    let response = state
-        .http_client
-        .post(format!("{}/v1/chat/completions", base_url))
-        .header("Authorization", format!("Bearer {}", api_key))
-        .header("Content-Type", "application/json")
-        .json(&request_body)
-        .send()
-        .await;
+    let response = send_upstream_json_with_policy(
+        &state,
+        upstream.as_ref(),
+        format!("{}/v1/chat/completions", base_url),
+        vec![
+            ("Authorization".to_string(), format!("Bearer {}", api_key)),
+            ("Content-Type".to_string(), "application/json".to_string()),
+        ],
+        &request_body,
+    )
+    .await;
 
     let duration_ms = start_time.elapsed().as_millis() as i64;
 
@@ -1045,6 +1141,7 @@ async fn handle_messages_via_openai(
                 .get("completion_tokens")
                 .and_then(|v| v.as_i64())
                 .unwrap_or(0);
+            record_provider_token_usage(&state, upstream.as_ref(), input_tokens + output_tokens).await;
             let content = openai_chat_body_to_anthropic_content(&body);
 
             record_compat_request(
@@ -1142,10 +1239,12 @@ async fn handle_chat_completions_via_anthropic(
     request_id: String,
     start_time: Instant,
 ) -> Response {
-    let base_url = resolve_upstream_url(&state, &req.model, UpstreamProtocol::Anthropic)
+    let upstream = resolve_upstream_config(&state, &req.model, UpstreamProtocol::Anthropic).await;
+    let base_url = upstream
+        .as_ref()
+        .map(|config| config.base_url.clone())
         .unwrap_or_else(|| "https://api.anthropic.com".to_string());
-    let api_key =
-        resolve_api_key(&state, &req.model, UpstreamProtocol::Anthropic).unwrap_or_default();
+    let api_key = upstream.as_ref().map(|config| config.api_key.clone()).unwrap_or_default();
     let (system, messages) = openai_messages_to_anthropic(&req.messages);
 
     let mut request_body = serde_json::json!({
@@ -1177,21 +1276,25 @@ async fn handle_chat_completions_via_anthropic(
                 ("anthropic-version".to_string(), "2023-06-01".to_string()),
                 ("Content-Type".to_string(), "application/json".to_string()),
             ],
+            upstream,
             StreamTransform::AnthropicToOpenAIChat,
             serde_json::to_string(&req).ok(),
         )
         .into_response();
     }
 
-    let response = state
-        .http_client
-        .post(format!("{}/v1/messages", base_url))
-        .header("x-api-key", api_key)
-        .header("anthropic-version", "2023-06-01")
-        .header("Content-Type", "application/json")
-        .json(&request_body)
-        .send()
-        .await;
+    let response = send_upstream_json_with_policy(
+        &state,
+        upstream.as_ref(),
+        format!("{}/v1/messages", base_url),
+        vec![
+            ("x-api-key".to_string(), api_key),
+            ("anthropic-version".to_string(), "2023-06-01".to_string()),
+            ("Content-Type".to_string(), "application/json".to_string()),
+        ],
+        &request_body,
+    )
+    .await;
     let duration_ms = start_time.elapsed().as_millis() as i64;
 
     match response {
@@ -1206,6 +1309,7 @@ async fn handle_chat_completions_via_anthropic(
                 .get("output_tokens")
                 .and_then(|v| v.as_i64())
                 .unwrap_or(0);
+            record_provider_token_usage(&state, upstream.as_ref(), input_tokens + output_tokens).await;
             let message = anthropic_body_to_openai_message(&body);
 
             record_compat_request(
@@ -1281,15 +1385,184 @@ async fn handle_chat_completions_via_anthropic(
     }
 }
 
-fn resolve_upstream_url(
+async fn resolve_upstream_config(
     state: &CompatApiState,
     model: &str,
     protocol: UpstreamProtocol,
-) -> Option<String> {
-    let profile = find_matching_profile(state, model, protocol)?;
-    profile
+) -> Option<UpstreamConfig> {
+    let profile = select_matching_profile(state, model, protocol).await?;
+    let base_url = profile
         .base_url
-        .or_else(|| default_base_url(&profile.api_format, protocol))
+        .clone()
+        .or_else(|| default_base_url(&profile.api_format, protocol))?;
+    let api_key = profile
+        .api_key_env
+        .as_deref()
+        .and_then(|env_key| std::env::var(env_key).ok())
+        .unwrap_or_default();
+    let rate_limit = profile_rate_limit_config(&profile);
+    let retry = profile_retry_config(&profile);
+
+    Some(UpstreamConfig {
+        profile_id: profile.id,
+        provider_key: profile.provider_key,
+        base_url,
+        api_key,
+        rate_limit,
+        retry,
+    })
+}
+
+async fn send_upstream_json_with_policy(
+    state: &CompatApiState,
+    upstream: Option<&UpstreamConfig>,
+    url: String,
+    headers: Vec<(String, String)>,
+    body: &serde_json::Value,
+) -> Result<ReqwestResponse, UpstreamRequestError> {
+    if let Some(upstream) = upstream {
+        enforce_provider_rate_limit(state, upstream).await;
+        ensure_provider_token_budget(state, upstream, estimate_request_tokens(body)).await?;
+    }
+
+    let retry = upstream.map(|config| config.retry).unwrap_or_default();
+    let max_attempts = retry.max_attempts.max(1);
+    let mut attempt = 0_usize;
+
+    loop {
+        attempt += 1;
+        let mut builder = state.http_client.post(&url).json(body);
+        for (name, value) in &headers {
+            builder = builder.header(name, value);
+        }
+
+        let response = builder.send().await;
+        let should_retry = match response.as_ref() {
+            Ok(resp) => is_retryable_status(resp.status()),
+            Err(_) => true,
+        };
+
+        if !should_retry || attempt >= max_attempts {
+            return response.map_err(UpstreamRequestError::Network);
+        }
+
+        tokio::time::sleep(retry_delay(retry.backoff_ms, attempt)).await;
+    }
+}
+
+fn is_retryable_status(status: StatusCode) -> bool {
+    status == StatusCode::TOO_MANY_REQUESTS || status.is_server_error()
+}
+
+fn retry_delay(base_ms: u64, attempt: usize) -> Duration {
+    let multiplier = 2_u64.saturating_pow(attempt.saturating_sub(1) as u32);
+    Duration::from_millis(base_ms.saturating_mul(multiplier).min(5_000))
+}
+
+async fn enforce_provider_rate_limit(state: &CompatApiState, upstream: &UpstreamConfig) {
+    let Some(requests_per_minute) = upstream.rate_limit.requests_per_minute else {
+        return;
+    };
+    if requests_per_minute == 0 {
+        return;
+    }
+
+    loop {
+        let wait_for = {
+            let mut runtime = state.rate_limits.lock().await;
+            let window = runtime
+                .request_windows
+                .entry(upstream.profile_id.clone())
+                .or_default();
+            let now = Instant::now();
+            while let Some(front) = window.front() {
+                if now.duration_since(*front) >= Duration::from_secs(60) {
+                    window.pop_front();
+                } else {
+                    break;
+                }
+            }
+
+            if window.len() < requests_per_minute {
+                window.push_back(now);
+                None
+            } else {
+                window.front().map(|oldest| {
+                    Duration::from_secs(60).saturating_sub(now.duration_since(*oldest))
+                })
+            }
+        };
+
+        match wait_for {
+            Some(duration) if !duration.is_zero() => tokio::time::sleep(duration).await,
+            Some(_) => tokio::task::yield_now().await,
+            None => return,
+        }
+    }
+}
+
+async fn ensure_provider_token_budget(
+    state: &CompatApiState,
+    upstream: &UpstreamConfig,
+    estimated_tokens: i64,
+) -> Result<(), UpstreamRequestError> {
+    let Some(budget) = upstream.rate_limit.daily_token_budget else {
+        return Ok(());
+    };
+    if budget <= 0 {
+        return Ok(());
+    }
+
+    let today = Utc::now().format("%Y-%m-%d").to_string();
+    let mut runtime = state.rate_limits.lock().await;
+    let usage = runtime
+        .token_usage
+        .entry(upstream.profile_id.clone())
+        .or_default();
+    if usage.date != today {
+        usage.date = today;
+        usage.tokens = 0;
+    }
+
+    let projected = usage.tokens.saturating_add(estimated_tokens.max(1));
+    if projected > budget {
+        return Err(UpstreamRequestError::Policy(format!(
+            "Daily token budget exceeded for provider {}: {} / {} tokens",
+            upstream.provider_key, usage.tokens, budget
+        )));
+    }
+
+    Ok(())
+}
+
+async fn record_provider_token_usage(
+    state: &CompatApiState,
+    upstream: Option<&UpstreamConfig>,
+    tokens: i64,
+) {
+    let Some(upstream) = upstream else {
+        return;
+    };
+    if upstream.rate_limit.daily_token_budget.is_none() || tokens <= 0 {
+        return;
+    }
+
+    let today = Utc::now().format("%Y-%m-%d").to_string();
+    let mut runtime = state.rate_limits.lock().await;
+    let usage = runtime
+        .token_usage
+        .entry(upstream.profile_id.clone())
+        .or_default();
+    if usage.date != today {
+        usage.date = today;
+        usage.tokens = 0;
+    }
+    usage.tokens += tokens;
+}
+
+fn estimate_request_tokens(body: &serde_json::Value) -> i64 {
+    let text = body.to_string();
+    ((text.chars().count() as i64 + 3) / 4).max(1)
 }
 
 fn create_compat_sse_stream(
@@ -1300,6 +1573,7 @@ fn create_compat_sse_stream(
     request_body: serde_json::Value,
     upstream_url: String,
     headers: Vec<(String, String)>,
+    upstream: Option<UpstreamConfig>,
     transform: StreamTransform,
     request_summary_json: Option<String>,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
@@ -1311,19 +1585,19 @@ fn create_compat_sse_stream(
         let mut output_tokens = 0_i64;
         let mut status = "success".to_string();
         let mut error_text: Option<String> = None;
-        let mut builder = state.http_client.post(upstream_url).json(&request_body);
-
-        for (name, value) in headers {
-            builder = builder.header(name, value);
-        }
-
         if matches!(transform, StreamTransform::OpenAIChatToAnthropic) {
             for event in anthropic_stream_start_events(&request_id, &model) {
                 yield Ok(event);
             }
         }
 
-        let response = builder.send().await;
+        let response = send_upstream_json_with_policy(
+            &state,
+            upstream.as_ref(),
+            upstream_url,
+            headers,
+            &request_body,
+        ).await;
 
         match response {
             Ok(resp) if resp.status().is_success() => {
@@ -1398,6 +1672,7 @@ fn create_compat_sse_stream(
         }
 
         let duration_ms = start_time.elapsed().as_millis() as i64;
+        record_provider_token_usage(&state, upstream.as_ref(), input_tokens + output_tokens).await;
         record_stream_compat_request(
             &state,
             &request_id,
@@ -2182,18 +2457,6 @@ fn content_to_text(value: &serde_json::Value) -> String {
     }
 }
 
-fn resolve_api_key(
-    state: &CompatApiState,
-    model: &str,
-    protocol: UpstreamProtocol,
-) -> Option<String> {
-    let profile = find_matching_profile(state, model, protocol)?;
-    profile
-        .api_key_env
-        .as_deref()
-        .and_then(|env_key| std::env::var(env_key).ok())
-}
-
 fn find_matching_profile(
     state: &CompatApiState,
     model: &str,
@@ -2211,18 +2474,71 @@ fn find_matching_profile(
         .map(|(_, profile)| profile)
 }
 
+async fn select_matching_profile(
+    state: &CompatApiState,
+    model: &str,
+    protocol: UpstreamProtocol,
+) -> Option<ProviderProfileRecord> {
+    let conn = db::get_connection(&state.app_handle).ok()?;
+    let profiles = db::list_provider_profiles_from_conn(&conn).ok()?;
+    let mut scored = profiles
+        .into_iter()
+        .filter_map(|profile| {
+            profile_match_score(&profile, model, protocol).map(|score| (score, profile))
+        })
+        .collect::<Vec<_>>();
+
+    scored.sort_by(|left, right| {
+        right
+            .0
+            .cmp(&left.0)
+            .then_with(|| left.1.id.cmp(&right.1.id))
+    });
+    let best_score = scored.first()?.0;
+    let candidates = scored
+        .into_iter()
+        .filter(|(score, _)| *score == best_score)
+        .map(|(_, profile)| profile)
+        .collect::<Vec<_>>();
+
+    if candidates.len() == 1 {
+        return candidates.into_iter().next();
+    }
+
+    let key = format!(
+        "{}:{}:{}",
+        upstream_protocol_key(protocol),
+        model,
+        best_score.0
+    );
+    let mut counters = state.round_robin_counters.lock().await;
+    let counter = counters.entry(key).or_insert(0);
+    let selected_index = *counter % candidates.len();
+    *counter = counter.wrapping_add(1);
+    candidates.into_iter().nth(selected_index)
+}
+
+fn upstream_protocol_key(protocol: UpstreamProtocol) -> &'static str {
+    match protocol {
+        UpstreamProtocol::OpenAI => "openai",
+        UpstreamProtocol::Anthropic => "anthropic",
+    }
+}
+
 fn profile_match_score(
     profile: &ProviderProfileRecord,
     model: &str,
     protocol: UpstreamProtocol,
-) -> Option<(u8, usize)> {
+) -> Option<(u8, i64, usize)> {
     if !profile.enabled || !supports_protocol(profile.api_format.as_str(), protocol) {
         return None;
     }
 
+    let priority = profile_route_priority(profile);
+
     let exact_models = profile_exact_models(profile);
     if exact_models.iter().any(|candidate| candidate == model) {
-        return Some((3, model.len()));
+        return Some((3, priority, model.len()));
     }
 
     let matching_prefix_length = profile_model_prefixes(profile)
@@ -2232,17 +2548,96 @@ fn profile_match_score(
         .max();
 
     if let Some(prefix_length) = matching_prefix_length {
-        return Some((2, prefix_length));
+        return Some((2, priority, prefix_length));
     }
 
     if exact_models.is_empty() {
         let configured_prefixes = profile_model_prefixes(profile);
         if configured_prefixes.is_empty() {
-            return Some((1, 0));
+            return Some((1, priority, 0));
         }
     }
 
     None
+}
+
+fn profile_route_priority(profile: &ProviderProfileRecord) -> i64 {
+    parse_profile_extra(profile)
+        .and_then(|extra| {
+            extra
+                .get("route_priority")
+                .or_else(|| extra.get("routePriority"))
+                .and_then(|value| value.as_i64())
+        })
+        .unwrap_or(0)
+}
+
+fn profile_rate_limit_config(profile: &ProviderProfileRecord) -> ProviderRateLimitConfig {
+    let Some(extra) = parse_profile_extra(profile) else {
+        return ProviderRateLimitConfig::default();
+    };
+    let rate_limit = extra.get("rate_limit").or_else(|| extra.get("rateLimit"));
+    ProviderRateLimitConfig {
+        requests_per_minute: read_usize_config(
+            rate_limit
+                .and_then(|value| value.get("requests_per_minute"))
+                .or_else(|| rate_limit.and_then(|value| value.get("requestsPerMinute")))
+                .or_else(|| extra.get("requests_per_minute"))
+                .or_else(|| extra.get("requestsPerMinute")),
+        ),
+        daily_token_budget: read_i64_config(
+            rate_limit
+                .and_then(|value| value.get("daily_token_budget"))
+                .or_else(|| rate_limit.and_then(|value| value.get("dailyTokenBudget")))
+                .or_else(|| extra.get("daily_token_budget"))
+                .or_else(|| extra.get("dailyTokenBudget")),
+        ),
+    }
+}
+
+fn profile_retry_config(profile: &ProviderProfileRecord) -> ProviderRetryConfig {
+    let Some(extra) = parse_profile_extra(profile) else {
+        return ProviderRetryConfig::default();
+    };
+    let retry = extra.get("retry");
+    let max_attempts = read_usize_config(
+        retry
+            .and_then(|value| value.get("max_attempts"))
+            .or_else(|| retry.and_then(|value| value.get("maxAttempts")))
+            .or_else(|| extra.get("retry_max_attempts"))
+            .or_else(|| extra.get("retryMaxAttempts")),
+    )
+    .unwrap_or(ProviderRetryConfig::default().max_attempts)
+    .clamp(1, 5);
+    let backoff_ms = read_u64_config(
+        retry
+            .and_then(|value| value.get("backoff_ms"))
+            .or_else(|| retry.and_then(|value| value.get("backoffMs")))
+            .or_else(|| extra.get("retry_backoff_ms"))
+            .or_else(|| extra.get("retryBackoffMs")),
+    )
+    .unwrap_or(ProviderRetryConfig::default().backoff_ms)
+    .clamp(50, 5_000);
+
+    ProviderRetryConfig {
+        max_attempts,
+        backoff_ms,
+    }
+}
+
+fn read_usize_config(value: Option<&serde_json::Value>) -> Option<usize> {
+    value
+        .and_then(|value| value.as_u64())
+        .and_then(|value| usize::try_from(value).ok())
+        .filter(|value| *value > 0)
+}
+
+fn read_i64_config(value: Option<&serde_json::Value>) -> Option<i64> {
+    value.and_then(|value| value.as_i64()).filter(|value| *value > 0)
+}
+
+fn read_u64_config(value: Option<&serde_json::Value>) -> Option<u64> {
+    value.and_then(|value| value.as_u64()).filter(|value| *value > 0)
 }
 
 fn supports_protocol(api_format: &str, protocol: UpstreamProtocol) -> bool {
@@ -2344,11 +2739,11 @@ mod tests {
 
         assert_eq!(
             profile_match_score(&exact, "gpt-4.1", UpstreamProtocol::OpenAI),
-            Some((3, "gpt-4.1".len()))
+            Some((3, 0, "gpt-4.1".len()))
         );
         assert_eq!(
             profile_match_score(&prefix, "gpt-4.1-mini", UpstreamProtocol::OpenAI),
-            Some((2, "gpt-4".len()))
+            Some((2, 0, "gpt-4".len()))
         );
         assert_eq!(
             profile_match_score(&prefix, "claude-sonnet-4", UpstreamProtocol::OpenAI),
@@ -2371,8 +2766,82 @@ mod tests {
         );
         assert_eq!(
             profile_match_score(&anthropic, "claude-sonnet-4", UpstreamProtocol::Anthropic),
-            Some((1, 0))
+            Some((1, 0, 0))
         );
+    }
+
+    #[test]
+    fn profile_matching_uses_route_priority_between_equal_model_matches() {
+        let low = profile(
+            "openai-low",
+            "openai",
+            true,
+            Some(r#"{"models":["gpt-4.1"],"route_priority":1}"#),
+        );
+        let high = profile(
+            "openai-high",
+            "openai",
+            true,
+            Some(r#"{"models":["gpt-4.1"],"route_priority":20}"#),
+        );
+
+        assert!(
+            profile_match_score(&high, "gpt-4.1", UpstreamProtocol::OpenAI)
+                > profile_match_score(&low, "gpt-4.1", UpstreamProtocol::OpenAI)
+        );
+    }
+
+    #[test]
+    fn round_robin_counter_cycles_across_equal_score_candidates() {
+        let candidates = ["account-a", "account-b", "account-c"];
+        let mut counter = 0_usize;
+        let selected = (0..5)
+            .map(|_| {
+                let current = candidates[counter % candidates.len()];
+                counter = counter.wrapping_add(1);
+                current
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            selected,
+            vec!["account-a", "account-b", "account-c", "account-a", "account-b"]
+        );
+    }
+
+    #[test]
+    fn parses_rate_limit_and_retry_profile_extra() {
+        let configured = profile(
+            "limited",
+            "openai",
+            true,
+            Some(r#"{
+                "rate_limit": {
+                    "requests_per_minute": 42,
+                    "daily_token_budget": 90000
+                },
+                "retry": {
+                    "max_attempts": 4,
+                    "backoff_ms": 750
+                }
+            }"#),
+        );
+        let rate_limit = profile_rate_limit_config(&configured);
+        let retry = profile_retry_config(&configured);
+
+        assert_eq!(rate_limit.requests_per_minute, Some(42));
+        assert_eq!(rate_limit.daily_token_budget, Some(90_000));
+        assert_eq!(retry.max_attempts, 4);
+        assert_eq!(retry.backoff_ms, 750);
+    }
+
+    #[test]
+    fn retry_policy_targets_network_429_and_5xx_only() {
+        assert!(is_retryable_status(StatusCode::TOO_MANY_REQUESTS));
+        assert!(is_retryable_status(StatusCode::BAD_GATEWAY));
+        assert!(is_retryable_status(StatusCode::SERVICE_UNAVAILABLE));
+        assert!(!is_retryable_status(StatusCode::BAD_REQUEST));
+        assert!(!is_retryable_status(StatusCode::UNAUTHORIZED));
     }
 
     #[test]

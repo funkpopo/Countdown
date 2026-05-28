@@ -2,9 +2,11 @@ use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::models::{
     AppliedMigration, CombinedTodayUsage, CombinedUsage, DailyUsageRecord, DatabaseSummary,
-    PaginatedRequestRecords, ProviderProfileRecord, ProviderProfileUpsertInput, RequestFilterInput,
-    RequestFilterOptions, RequestRecordDetail, RequestRecordListItem, RequestRecordUpsertRecord,
-    SessionUpsertRecord, TableStat, UsageHistogram, UsageHistogramBucket,
+    PaginatedRequestRecords, PerformanceMetricSummary, PerformanceQualitySummary,
+    ProviderModelPerformance, ProviderProfileRecord, ProviderProfileUpsertInput,
+    ProviderRuntimeStatus, RequestFilterInput, RequestFilterOptions, RequestRecordDetail,
+    RequestRecordListItem, RequestRecordUpsertRecord, RequestTrendBucket, SessionUpsertRecord,
+    TableStat, UsageHistogram, UsageHistogramBucket,
 };
 
 const CORE_TABLES: &[&str] = &[
@@ -1108,6 +1110,358 @@ pub fn get_request_filter_options(connection: &Connection) -> Result<RequestFilt
     })
 }
 
+pub fn get_provider_runtime_statuses(
+    connection: &Connection,
+) -> Result<Vec<ProviderRuntimeStatus>, String> {
+    let mut statement = connection
+        .prepare(
+            "
+            SELECT
+              rr.provider,
+              COUNT(*) AS request_count,
+              COALESCE(SUM(CASE WHEN rr.status LIKE 'error_%' OR rr.status = 'error' THEN 1 ELSE 0 END), 0) AS error_count,
+              AVG(rr.duration_ms) AS avg_duration_ms,
+              MAX(COALESCE(rr.finished_at, rr.started_at)) AS last_request_at,
+              MAX(CASE WHEN rr.status LIKE 'error_%' OR rr.status = 'error' THEN COALESCE(rr.finished_at, rr.started_at) END) AS last_error_at,
+              (
+                SELECT rr2.error_text
+                FROM request_records rr2
+                WHERE rr2.provider = rr.provider
+                  AND rr2.error_text IS NOT NULL
+                ORDER BY COALESCE(rr2.finished_at, rr2.started_at) DESC, rr2.updated_at DESC
+                LIMIT 1
+              ) AS last_error_text
+            FROM request_records rr
+            GROUP BY rr.provider
+            ORDER BY rr.provider ASC
+            ",
+        )
+        .map_err(|error| error.to_string())?;
+
+    let rows = statement
+        .query_map([], |row| {
+            let request_count: i64 = row.get(1)?;
+            let error_count: i64 = row.get(2)?;
+            Ok(ProviderRuntimeStatus {
+                provider_key: row.get(0)?,
+                available: error_count == 0,
+                request_count,
+                error_count,
+                avg_duration_ms: row.get(3)?,
+                last_request_at: row.get(4)?,
+                last_error_at: row.get(5)?,
+                last_error_text: row.get(6)?,
+            })
+        })
+        .map_err(|error| error.to_string())?;
+
+    rows.collect::<Result<Vec<_>, _>>()
+        .map_err(|error| error.to_string())
+}
+
+pub fn get_performance_quality_summary(
+    connection: &Connection,
+) -> Result<PerformanceQualitySummary, String> {
+    Ok(PerformanceQualitySummary {
+        generated_at: chrono::Utc::now().to_rfc3339(),
+        overall: query_metric_summary(connection, "")?,
+        provider_model: query_provider_model_performance(connection)?,
+        stream: query_metric_summary(connection, "WHERE rr.is_stream = 1")?,
+        non_stream: query_metric_summary(connection, "WHERE rr.is_stream = 0")?,
+        recent_one_hour: query_trend_buckets(connection, "-59 minutes", "%Y-%m-%dT%H:%M:00Z")?,
+        recent_twenty_four_hours: query_trend_buckets(connection, "-23 hours", "%Y-%m-%dT%H:00:00Z")?,
+        slow_requests: query_slow_requests(connection, 10)?,
+        failed_requests: query_failed_requests(connection, 10)?,
+    })
+}
+
+fn query_metric_summary(
+    connection: &Connection,
+    where_sql: &str,
+) -> Result<PerformanceMetricSummary, String> {
+    let sql = format!(
+        "
+        SELECT
+          COUNT(*),
+          COALESCE(SUM(CASE WHEN rr.status LIKE 'error_%' OR rr.status = 'error' THEN 1 ELSE 0 END), 0),
+          AVG(rr.ttft_ms),
+          AVG(rr.duration_ms)
+        FROM request_records rr
+        {where_sql}
+        "
+    );
+    let (request_count, error_count, avg_ttft_ms, avg_duration_ms): (
+        i64,
+        i64,
+        Option<f64>,
+        Option<f64>,
+    ) = connection
+        .query_row(&sql, [], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+        })
+        .map_err(|error| error.to_string())?;
+
+    Ok(PerformanceMetricSummary {
+        request_count,
+        error_count,
+        error_rate: error_rate(request_count, error_count),
+        avg_ttft_ms,
+        p95_ttft_ms: query_percentile(connection, "ttft_ms", where_sql, 0.95)?,
+        avg_duration_ms,
+        p95_duration_ms: query_percentile(connection, "duration_ms", where_sql, 0.95)?,
+    })
+}
+
+fn query_percentile(
+    connection: &Connection,
+    column: &str,
+    where_sql: &str,
+    percentile: f64,
+) -> Result<Option<i64>, String> {
+    let null_filter = format!("rr.{column} IS NOT NULL");
+    let percentile_where_sql = if where_sql.trim().is_empty() {
+        format!("WHERE {null_filter}")
+    } else {
+        format!("{where_sql} AND {null_filter}")
+    };
+    let sql = format!(
+        "
+        SELECT rr.{column}
+        FROM request_records rr
+        {percentile_where_sql}
+        ORDER BY rr.{column} ASC
+        "
+    );
+
+    let mut statement = connection.prepare(&sql).map_err(|error| error.to_string())?;
+    let values = statement
+        .query_map([], |row| row.get::<_, i64>(0))
+        .map_err(|error| error.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| error.to_string())?;
+
+    Ok(percentile_value(&values, percentile))
+}
+
+fn query_provider_model_performance(
+    connection: &Connection,
+) -> Result<Vec<ProviderModelPerformance>, String> {
+    let mut statement = connection
+        .prepare(
+            "
+            SELECT
+              rr.provider,
+              COALESCE(NULLIF(TRIM(rr.model), ''), 'unknown') AS model,
+              COUNT(*) AS request_count,
+              COALESCE(SUM(CASE WHEN rr.status LIKE 'error_%' OR rr.status = 'error' THEN 1 ELSE 0 END), 0) AS error_count,
+              AVG(rr.ttft_ms) AS avg_ttft_ms,
+              AVG(rr.duration_ms) AS avg_duration_ms
+            FROM request_records rr
+            GROUP BY rr.provider, model
+            ORDER BY request_count DESC, rr.provider ASC, model ASC
+            LIMIT 40
+            ",
+        )
+        .map_err(|error| error.to_string())?;
+
+    let rows = statement
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, i64>(2)?,
+                row.get::<_, i64>(3)?,
+                row.get::<_, Option<f64>>(4)?,
+                row.get::<_, Option<f64>>(5)?,
+            ))
+        })
+        .map_err(|error| error.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| error.to_string())?;
+
+    let mut out = Vec::with_capacity(rows.len());
+    for (provider, model, request_count, error_count, avg_ttft_ms, avg_duration_ms) in rows {
+        let p95_ttft_ms = query_group_percentile(connection, "ttft_ms", &provider, &model, 0.95)?;
+        let p95_duration_ms =
+            query_group_percentile(connection, "duration_ms", &provider, &model, 0.95)?;
+        out.push(ProviderModelPerformance {
+            provider,
+            model,
+            request_count,
+            error_count,
+            error_rate: error_rate(request_count, error_count),
+            avg_ttft_ms,
+            p95_ttft_ms,
+            avg_duration_ms,
+            p95_duration_ms,
+            stability_score: stability_score(request_count, error_count, p95_duration_ms),
+        });
+    }
+
+    Ok(out)
+}
+
+fn query_group_percentile(
+    connection: &Connection,
+    column: &str,
+    provider: &str,
+    model: &str,
+    percentile: f64,
+) -> Result<Option<i64>, String> {
+    let sql = format!(
+        "
+        SELECT rr.{column}
+        FROM request_records rr
+        WHERE rr.provider = ?1
+          AND COALESCE(NULLIF(TRIM(rr.model), ''), 'unknown') = ?2
+          AND rr.{column} IS NOT NULL
+        ORDER BY rr.{column} ASC
+        "
+    );
+    let mut statement = connection.prepare(&sql).map_err(|error| error.to_string())?;
+    let values = statement
+        .query_map(params![provider, model], |row| row.get::<_, i64>(0))
+        .map_err(|error| error.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| error.to_string())?;
+
+    Ok(percentile_value(&values, percentile))
+}
+
+fn query_trend_buckets(
+    connection: &Connection,
+    since_modifier: &str,
+    bucket_format: &str,
+) -> Result<Vec<RequestTrendBucket>, String> {
+    let mut statement = connection
+        .prepare(
+            "
+            SELECT
+              strftime(?2, COALESCE(rr.started_at, rr.finished_at)) AS bucket,
+              COUNT(*) AS request_count,
+              COALESCE(SUM(CASE WHEN rr.status LIKE 'error_%' OR rr.status = 'error' THEN 1 ELSE 0 END), 0) AS error_count
+            FROM request_records rr
+            WHERE unixepoch(COALESCE(rr.started_at, rr.finished_at)) >= unixepoch('now', ?1)
+            GROUP BY bucket
+            ORDER BY bucket ASC
+            ",
+        )
+        .map_err(|error| error.to_string())?;
+
+    let rows = statement
+        .query_map(params![since_modifier, bucket_format], |row| {
+            Ok(RequestTrendBucket {
+                bucket: row.get(0)?,
+                request_count: row.get(1)?,
+                error_count: row.get(2)?,
+            })
+        })
+        .map_err(|error| error.to_string())?;
+
+    rows.collect::<Result<Vec<_>, _>>()
+        .map_err(|error| error.to_string())
+}
+
+fn query_slow_requests(
+    connection: &Connection,
+    limit: i64,
+) -> Result<Vec<RequestRecordListItem>, String> {
+    query_request_list(
+        connection,
+        "
+        WHERE rr.duration_ms IS NOT NULL
+        ORDER BY rr.duration_ms DESC, COALESCE(rr.started_at, rr.finished_at) DESC
+        LIMIT ?1
+        ",
+        limit,
+    )
+}
+
+fn query_failed_requests(
+    connection: &Connection,
+    limit: i64,
+) -> Result<Vec<RequestRecordListItem>, String> {
+    query_request_list(
+        connection,
+        "
+        WHERE rr.status LIKE 'error_%' OR rr.status = 'error'
+        ORDER BY COALESCE(rr.finished_at, rr.started_at) DESC, rr.updated_at DESC
+        LIMIT ?1
+        ",
+        limit,
+    )
+}
+
+fn query_request_list(
+    connection: &Connection,
+    tail_sql: &str,
+    limit: i64,
+) -> Result<Vec<RequestRecordListItem>, String> {
+    let sql = format!(
+        "
+        SELECT
+          rr.id,
+          rr.provider,
+          rr.source_mode,
+          rr.session_id,
+          rr.request_id,
+          rr.model,
+          rr.is_stream,
+          rr.input_tokens,
+          rr.output_tokens,
+          rr.cached_input_tokens,
+          rr.reasoning_tokens,
+          rr.ttft_ms,
+          rr.duration_ms,
+          rr.status,
+          rr.started_at,
+          rr.finished_at,
+          s.cwd,
+          s.entrypoint
+        FROM request_records rr
+        LEFT JOIN sessions s
+          ON rr.provider = s.provider
+         AND rr.session_id = s.session_id
+        {tail_sql}
+        "
+    );
+    let mut statement = connection.prepare(&sql).map_err(|error| error.to_string())?;
+    let rows = statement
+        .query_map([limit], map_request_record_row)
+        .map_err(|error| error.to_string())?;
+
+    rows.collect::<Result<Vec<_>, _>>()
+        .map_err(|error| error.to_string())
+}
+
+fn percentile_value(values: &[i64], percentile: f64) -> Option<i64> {
+    if values.is_empty() {
+        return None;
+    }
+    let index = ((values.len() as f64 * percentile).ceil() as usize).saturating_sub(1);
+    values.get(index.min(values.len() - 1)).copied()
+}
+
+fn error_rate(request_count: i64, error_count: i64) -> f64 {
+    if request_count == 0 {
+        0.0
+    } else {
+        error_count as f64 / request_count as f64
+    }
+}
+
+fn stability_score(request_count: i64, error_count: i64, p95_duration_ms: Option<i64>) -> f64 {
+    if request_count == 0 {
+        return 0.0;
+    }
+
+    let error_penalty = error_rate(request_count, error_count) * 70.0;
+    let latency_penalty = p95_duration_ms
+        .map(|duration| (duration as f64 / 30_000.0).min(1.0) * 30.0)
+        .unwrap_or(0.0);
+    (100.0 - error_penalty - latency_penalty).clamp(0.0, 100.0)
+}
+
 fn list_distinct_request_values(
     connection: &Connection,
     column: &str,
@@ -1251,7 +1605,9 @@ pub fn list_filtered_request_records(
                         AND rr.id < ?{}
                       )
                     )",
-                    param_index, param_index + 1, param_index + 2
+                    param_index,
+                    param_index + 1,
+                    param_index + 2
                 ));
                 param_values.push(Box::new(started_at.to_string()));
                 param_values.push(Box::new(started_at.to_string()));
@@ -1267,7 +1623,9 @@ pub fn list_filtered_request_records(
                         AND rr.id > ?{}
                       )
                     )",
-                    param_index, param_index + 1, param_index + 2
+                    param_index,
+                    param_index + 1,
+                    param_index + 2
                 ));
                 param_values.push(Box::new(started_at.to_string()));
                 param_values.push(Box::new(started_at.to_string()));

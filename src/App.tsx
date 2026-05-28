@@ -7,6 +7,7 @@ import {
   getUsageHistogram,
   getCombinedUsage,
   getDatabaseSummary,
+  getPerformanceQualitySummary,
   initializeLocalDatabase,
   listFilteredRequests,
   type ClaudeOverview,
@@ -14,6 +15,7 @@ import {
   type CombinedUsage,
   type DailyUsageRecord,
   type DatabaseSummary,
+  type PerformanceQualitySummary,
   type RequestRecordListItem,
   type UsageHistogram,
 } from "./desktop";
@@ -131,6 +133,7 @@ type OverviewPageProps = {
   claudeOverview: ClaudeOverview | null;
   periodUsage: CombinedUsage | null;
   histogram: UsageHistogram | null;
+  performance: PerformanceQualitySummary | null;
   period: Period;
   histogramMetric: HistogramMetric;
   refreshToken: number;
@@ -148,6 +151,7 @@ const OverviewPage = memo(function OverviewPage({
   claudeOverview,
   periodUsage,
   histogram,
+  performance,
   period,
   histogramMetric,
   refreshToken,
@@ -285,6 +289,8 @@ const OverviewPage = memo(function OverviewPage({
           />
         ) : null}
 
+        <PerformanceQualityPanel performance={performance} />
+
         <RecentRequestsPanel
           provider="codex"
           title={t("recent.codex")}
@@ -328,6 +334,170 @@ const OverviewPage = memo(function OverviewPage({
     </div>
   );
 });
+
+const PerformanceQualityPanel = memo(function PerformanceQualityPanel({
+  performance,
+}: {
+  performance: PerformanceQualitySummary | null;
+}) {
+  const { t } = useLanguage();
+  const formatNumber = useFormatNumber();
+  const formatMs = useFormatMs();
+  const providerRows = performance?.providerModel ?? [];
+  const slowRequests = performance?.slowRequests ?? [];
+  const failedRequests = performance?.failedRequests ?? [];
+
+  return (
+    <div className="card wide performance-card">
+      <div className="card-header">
+        <h2>{t("performance.title")}</h2>
+        <span className="card-meta">{performance ? formatDate(performance.generatedAt) : t("n/a")}</span>
+      </div>
+      <div className="stats performance-stats">
+        {renderUsageStat(t("performance.avgTtft"), formatMs(performance?.overall.avgTtftMs ?? null))}
+        {renderUsageStat(t("performance.p95Ttft"), formatMs(performance?.overall.p95TtftMs ?? null))}
+        {renderUsageStat(t("performance.p95Duration"), formatMs(performance?.overall.p95DurationMs ?? null))}
+        {renderUsageStat(t("performance.errorRate"), formatPercent(performance?.overall.errorRate))}
+        {renderUsageStat(t("performance.streamAvg"), formatMs(performance?.stream.avgDurationMs ?? null))}
+        {renderUsageStat(t("performance.nonStreamAvg"), formatMs(performance?.nonStream.avgDurationMs ?? null))}
+      </div>
+
+      <div className="quality-layout">
+        <div className="quality-section">
+          <div className="section-title">
+            <h3>{t("performance.providerModel")}</h3>
+          </div>
+          <div className="compact-table-wrap">
+            <table className="data-table compact-table">
+              <thead>
+                <tr>
+                  <th>{t("th.provider")}</th>
+                  <th>{t("th.model")}</th>
+                  <th>{t("th.requests")}</th>
+                  <th>{t("performance.p95Duration")}</th>
+                  <th>{t("performance.errorRate")}</th>
+                  <th>{t("performance.stability")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {providerRows.length ? providerRows.slice(0, 12).map((row) => (
+                  <tr key={`${row.provider}:${row.model}`}>
+                    <td>{row.provider}</td>
+                    <td>{row.model}</td>
+                    <td>{formatNumber(row.requestCount)}</td>
+                    <td>{formatMs(row.p95DurationMs)}</td>
+                    <td>{formatPercent(row.errorRate)}</td>
+                    <td>{row.stabilityScore.toFixed(0)}</td>
+                  </tr>
+                )) : (
+                  <tr><td colSpan={6}>{t("performance.empty")}</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <TrendPanel
+          title={t("performance.trend1h")}
+          buckets={performance?.recentOneHour ?? []}
+          formatNumber={formatNumber}
+        />
+        <TrendPanel
+          title={t("performance.trend24h")}
+          buckets={performance?.recentTwentyFourHours ?? []}
+          formatNumber={formatNumber}
+        />
+
+        <RequestMiniList
+          title={t("performance.slowRequests")}
+          requests={slowRequests}
+          value={(request) => formatMs(request.durationMs)}
+          emptyText={t("performance.empty")}
+        />
+        <RequestMiniList
+          title={t("performance.failedRequests")}
+          requests={failedRequests}
+          value={(request) => request.status}
+          emptyText={t("performance.empty")}
+        />
+      </div>
+    </div>
+  );
+});
+
+function TrendPanel({
+  title,
+  buckets,
+  formatNumber,
+}: {
+  title: string;
+  buckets: PerformanceQualitySummary["recentOneHour"];
+  formatNumber: (value: number | null | undefined) => string;
+}) {
+  const { t } = useLanguage();
+  const max = Math.max(1, ...buckets.map((bucket) => bucket.requestCount));
+  return (
+    <div className="quality-section">
+      <div className="section-title">
+        <h3>{title}</h3>
+      </div>
+      {buckets.length ? (
+        <div className="spark-bars">
+          {buckets.map((bucket) => (
+            <span
+              key={bucket.bucket}
+              className={bucket.errorCount > 0 ? "has-error" : ""}
+              style={{ height: `${Math.max(10, (bucket.requestCount / max) * 100)}%` }}
+              title={`${bucket.bucket}: ${formatNumber(bucket.requestCount)} / ${formatNumber(bucket.errorCount)} ${t("performance.errors")}`}
+            />
+          ))}
+        </div>
+      ) : (
+        <p className="empty">{t("performance.empty")}</p>
+      )}
+    </div>
+  );
+}
+
+function RequestMiniList({
+  title,
+  requests,
+  value,
+  emptyText,
+}: {
+  title: string;
+  requests: RequestRecordListItem[];
+  value: (request: RequestRecordListItem) => string;
+  emptyText: string;
+}) {
+  return (
+    <div className="quality-section">
+      <div className="section-title">
+        <h3>{title}</h3>
+      </div>
+      {requests.length ? (
+        <div className="mini-request-list">
+          {requests.slice(0, 8).map((request) => (
+            <div className="mini-request-row" key={request.id}>
+              <div>
+                <strong>{request.model ?? request.provider}</strong>
+                <span>{formatDate(request.startedAt)}</span>
+              </div>
+              <b>{value(request)}</b>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="empty">{emptyText}</p>
+      )}
+    </div>
+  );
+}
+
+function formatPercent(value: number | null | undefined) {
+  if (value == null) return "0%";
+  return `${(value * 100).toFixed(1)}%`;
+}
 
 const UsageHistogramPanel = memo(function UsageHistogramPanel({
   histogram,
@@ -605,6 +775,7 @@ function App() {
     week: null,
     month: null,
   });
+  const [performance, setPerformance] = useState<PerformanceQualitySummary | null>(null);
   const [histogramMetric, setHistogramMetric] = useState<HistogramMetric>("tokens");
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -660,14 +831,16 @@ function App() {
     startTransition(async () => {
       try {
         setError(null);
-        const [summary, codex, claude] = await Promise.all([
+        const [summary, codex, claude, quality] = await Promise.all([
           getDatabaseSummary(),
           getCodexOverview(),
           getClaudeCodeOverview(),
+          getPerformanceQualitySummary(),
         ]);
         setDatabaseSummary(summary);
         setCodexOverview(codex);
         setClaudeOverview(claude);
+        setPerformance(quality);
         setOverviewRefreshToken((current) => current + 1);
       } catch (refreshError) {
         setError(
@@ -786,6 +959,7 @@ function App() {
             claudeOverview={claudeOverview}
             periodUsage={periodUsage[period]}
             histogram={period === "total" ? null : histograms[period]}
+            performance={performance}
             period={period}
             histogramMetric={histogramMetric}
             refreshToken={overviewRefreshToken}

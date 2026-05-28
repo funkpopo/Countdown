@@ -478,6 +478,20 @@
   color: hsl(var(--muted));
 }
 
+.runtime-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: hsl(var(--muted));
+  font-size: 0.75rem;
+}
+
+.runtime-error {
+  max-width: 240px;
+  color: hsl(var(--destructive));
+  word-break: break-word;
+}
+
 .actions-cell {
   width: 1%;
   white-space: nowrap;

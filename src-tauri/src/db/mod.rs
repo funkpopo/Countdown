@@ -11,8 +11,9 @@ use crate::collectors::manager::CollectorManager;
 use crate::models::{
     ClaudeCodeSyncSummary, ClaudeOverview, CodexOverview, CodexSyncSummary, CombinedTodayUsage,
     CombinedUsage, DatabaseHealth, DatabaseSummary, ManagedLaunchInput, ManagedLaunchResult,
-    PaginatedRequestRecords, ProviderProfileRecord, ProviderProfileUpsertInput, RequestFilterInput,
-    RequestFilterOptions, RequestRecordDetail, UsageHistogram,
+    PaginatedRequestRecords, PerformanceQualitySummary, ProviderProfileRecord, ProviderProfileUpsertInput,
+    ProviderRuntimeStatus, RequestFilterInput, RequestFilterOptions, RequestRecordDetail,
+    UsageHistogram,
 };
 
 const DATABASE_FILE: &str = "countdown.db";
@@ -188,6 +189,16 @@ pub fn get_request_detail(app: &AppHandle, id: String) -> Result<RequestRecordDe
 pub fn request_filter_options(app: &AppHandle) -> Result<RequestFilterOptions, String> {
     let connection = open_connection(app)?;
     repository::get_request_filter_options(&connection)
+}
+
+pub fn provider_runtime_statuses(app: &AppHandle) -> Result<Vec<ProviderRuntimeStatus>, String> {
+    let connection = open_connection(app)?;
+    repository::get_provider_runtime_statuses(&connection)
+}
+
+pub fn performance_quality_summary(app: &AppHandle) -> Result<PerformanceQualitySummary, String> {
+    let connection = open_connection(app)?;
+    repository::get_performance_quality_summary(&connection)
 }
 
 pub(crate) fn open_connection(app: &AppHandle) -> Result<Connection, String> {
