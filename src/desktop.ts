@@ -295,6 +295,21 @@ export type CombinedUsage = {
   lastRefreshAt: string;
 };
 
+export type QuickViewSummary = {
+  compatApiRunning: boolean;
+  compatApiListenAddress: string;
+  compatApiStartedAt: string | null;
+  compatApiProfilesCount: number;
+  recentOneHourRequestCount: number;
+  recentOneHourErrorCount: number;
+  recentOneHourErrorRate: number;
+  usage: CombinedTodayUsage;
+};
+
+export type MainWindowPage = "overview" | "requests" | "settings";
+export type OverviewPeriod = "today" | "week" | "month" | "total";
+export type UiLanguage = "en" | "zh";
+
 export type UsageHistogramInput = {
   period: "today" | "week" | "month";
   granularity: "hour" | "day";
@@ -344,6 +359,29 @@ export async function initializeLocalDatabase(): Promise<DatabaseHealth> {
 
 export async function databaseHealthcheck(): Promise<DatabaseHealth> {
   return invoke<DatabaseHealth>("database_healthcheck");
+}
+
+export async function getUiLanguage(): Promise<UiLanguage> {
+  return invoke<UiLanguage>("get_ui_language");
+}
+
+export async function setUiLanguage(language: UiLanguage): Promise<UiLanguage> {
+  return invoke<UiLanguage>("set_ui_language", { language });
+}
+
+export async function openMainPage(
+  page: MainWindowPage,
+  period?: OverviewPeriod,
+): Promise<void> {
+  return invoke<void>("open_main_page", { page, period: period ?? null });
+}
+
+export async function quickViewPointerEnter(): Promise<void> {
+  return invoke<void>("quick_view_pointer_enter");
+}
+
+export async function quickViewPointerLeave(): Promise<void> {
+  return invoke<void>("quick_view_pointer_leave");
 }
 
 export async function getDatabaseSummary(): Promise<DatabaseSummary> {
@@ -396,6 +434,10 @@ export async function getClaudeCodeOverview(): Promise<ClaudeOverview> {
 
 export async function getCombinedTodayUsage(): Promise<CombinedTodayUsage> {
   return invoke<CombinedTodayUsage>("get_combined_today_usage");
+}
+
+export async function getQuickViewSummary(): Promise<QuickViewSummary> {
+  return invoke<QuickViewSummary>("get_quick_view_summary");
 }
 
 export async function getCombinedUsage(range: DateRangeInput): Promise<CombinedUsage> {

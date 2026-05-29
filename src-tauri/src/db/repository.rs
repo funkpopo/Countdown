@@ -9,20 +9,13 @@ use crate::models::{
     TableStat, UsageHistogram, UsageHistogramBucket,
 };
 
-const CORE_TABLES: &[&str] = &[
+const CORE_TABLES: [&str; 5] = [
     "provider_profiles",
     "sessions",
     "request_records",
     "daily_usage",
     "schema_migrations",
 ];
-
-const REQUEST_RECORDS_RECENT_ORDER: &str = "
-    CASE WHEN COALESCE(rr.finished_at, rr.started_at) IS NULL THEN 1 ELSE 0 END ASC,
-    unixepoch(COALESCE(rr.finished_at, rr.started_at)) DESC,
-    COALESCE(rr.finished_at, rr.started_at) DESC,
-    rr.updated_at DESC
-";
 
 const COMBINED_USAGE_PROVIDERS_SQL: &str =
     "'claude_code', 'codex', 'openai_compat', 'anthropic_compat'";
@@ -38,7 +31,7 @@ pub fn get_app_metadata(connection: &Connection, key: &str) -> Result<Option<Str
     connection
         .query_row(
             "SELECT value FROM app_metadata WHERE key = ?1",
-            params![key],
+            (key,),
             |row| row.get::<_, String>(0),
         )
         .optional()
@@ -50,7 +43,7 @@ pub fn set_app_metadata(connection: &Connection, key: &str, value: &str) -> Resu
         .execute(
             "INSERT INTO app_metadata (key, value) VALUES (?1, ?2)
              ON CONFLICT(key) DO UPDATE SET value = ?2",
-            params![key, value],
+            (key, value),
         )
         .map_err(|error| error.to_string())?;
     Ok(())
@@ -690,7 +683,7 @@ fn get_provider_agg_for_range(
                COALESCE(SUM(request_count), 0)
              FROM daily_usage
              WHERE provider = ?1 AND date >= ?2 AND date <= ?3",
-            params![provider, start_date, end_date],
+            (provider, start_date, end_date),
             |row| {
                 Ok((
                     row.get::<_, i64>(0)?,
@@ -721,7 +714,7 @@ fn get_combined_provider_agg_for_range(
     );
 
     connection
-        .query_row(&sql, params![start_date, end_date], |row| {
+        .query_row(&sql, (start_date, end_date), |row| {
             Ok((
                 row.get::<_, i64>(0)?,
                 row.get::<_, i64>(1)?,
@@ -1169,7 +1162,11 @@ pub fn get_performance_quality_summary(
         stream: query_metric_summary(connection, "WHERE rr.is_stream = 1")?,
         non_stream: query_metric_summary(connection, "WHERE rr.is_stream = 0")?,
         recent_one_hour: query_trend_buckets(connection, "-59 minutes", "%Y-%m-%dT%H:%M:00Z")?,
-        recent_twenty_four_hours: query_trend_buckets(connection, "-23 hours", "%Y-%m-%dT%H:00:00Z")?,
+        recent_twenty_four_hours: query_trend_buckets(
+            connection,
+            "-23 hours",
+            "%Y-%m-%dT%H:00:00Z",
+        )?,
         slow_requests: query_slow_requests(connection, 10)?,
         failed_requests: query_failed_requests(connection, 10)?,
     })
@@ -1233,7 +1230,9 @@ fn query_percentile(
         "
     );
 
-    let mut statement = connection.prepare(&sql).map_err(|error| error.to_string())?;
+    let mut statement = connection
+        .prepare(&sql)
+        .map_err(|error| error.to_string())?;
     let values = statement
         .query_map([], |row| row.get::<_, i64>(0))
         .map_err(|error| error.to_string())?
@@ -1318,7 +1317,9 @@ fn query_group_percentile(
         ORDER BY rr.{column} ASC
         "
     );
-    let mut statement = connection.prepare(&sql).map_err(|error| error.to_string())?;
+    let mut statement = connection
+        .prepare(&sql)
+        .map_err(|error| error.to_string())?;
     let values = statement
         .query_map(params![provider, model], |row| row.get::<_, i64>(0))
         .map_err(|error| error.to_string())?
@@ -1359,6 +1360,25 @@ fn query_trend_buckets(
         .map_err(|error| error.to_string())?;
 
     rows.collect::<Result<Vec<_>, _>>()
+        .map_err(|error| error.to_string())
+}
+
+pub fn get_recent_request_window_summary(
+    connection: &Connection,
+    since_modifier: &str,
+) -> Result<(i64, i64), String> {
+    connection
+        .query_row(
+            "
+            SELECT
+              COUNT(*) AS request_count,
+              COALESCE(SUM(CASE WHEN rr.status LIKE 'error_%' OR rr.status = 'error' THEN 1 ELSE 0 END), 0) AS error_count
+            FROM request_records rr
+            WHERE unixepoch(COALESCE(rr.started_at, rr.finished_at)) >= unixepoch('now', ?1)
+            ",
+            [since_modifier],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
         .map_err(|error| error.to_string())
 }
 
@@ -1425,7 +1445,9 @@ fn query_request_list(
         {tail_sql}
         "
     );
-    let mut statement = connection.prepare(&sql).map_err(|error| error.to_string())?;
+    let mut statement = connection
+        .prepare(&sql)
+        .map_err(|error| error.to_string())?;
     let rows = statement
         .query_map([limit], map_request_record_row)
         .map_err(|error| error.to_string())?;

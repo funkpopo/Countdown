@@ -67,10 +67,6 @@ struct ParsedRollout {
 }
 
 impl CodexCollector {
-    pub fn import_default_sessions() -> Result<CodexImportResult, String> {
-        Self::import_sessions_since(None)
-    }
-
     pub fn import_sessions_since(
         after_time: Option<chrono::DateTime<chrono::Utc>>,
     ) -> Result<CodexImportResult, String> {
@@ -438,14 +434,17 @@ fn parse_token_usage(info: &Value) -> Option<TokenUsage> {
 }
 
 fn build_entrypoint(session_meta: &SessionMeta) -> Option<String> {
-    match (
-        session_meta.source.as_deref(),
-        session_meta.originator.as_deref(),
-    ) {
-        (Some(source), Some(originator)) => Some(format!("{source}:{originator}")),
-        (Some(source), None) => Some(source.to_string()),
-        (None, Some(originator)) => Some(originator.to_string()),
-        (None, None) => None,
+    let source = session_meta.source.as_deref();
+    let originator = session_meta.originator.as_deref();
+
+    if let Some(source) = source {
+        if let Some(originator) = originator {
+            Some(format!("{source}:{originator}"))
+        } else {
+            Some(source.to_string())
+        }
+    } else {
+        originator.map(str::to_string)
     }
 }
 

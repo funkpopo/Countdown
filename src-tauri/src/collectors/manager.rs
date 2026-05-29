@@ -8,7 +8,7 @@ use crate::collectors::managed_launch::run_managed_launch;
 use crate::db::repository;
 use crate::models::{
     ClaudeCodeSyncSummary, ClaudeOverview, CodexOverview, CodexSyncSummary, ManagedLaunchInput,
-    ManagedLaunchResult, RequestRecordUpsertRecord, SessionUpsertRecord,
+    ManagedLaunchResult, RequestRecordUpsertRecord,
 };
 
 #[derive(Debug, Clone, Default)]

@@ -43,6 +43,16 @@ body {
   -webkit-user-select: none;
 }
 
+.quick-view-shell:focus {
+  outline: none;
+}
+
+.quick-view-shell:focus-visible .quick-view-panel {
+  box-shadow:
+    0 0 0 2px rgba(96, 165, 250, 0.6),
+    0 24px 48px rgba(3, 7, 18, 0.38);
+}
+
 .quick-view-panel {
   width: 100%;
   height: 100%;
@@ -145,6 +155,106 @@ body {
   color: #fecaca;
   font-size: 11px;
   line-height: 1.4;
+}
+
+.runtime-strip {
+  margin-top: 8px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(88px, auto);
+  gap: 8px;
+  align-items: stretch;
+}
+
+.compat-status,
+.compat-address {
+  min-width: 0;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.compat-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 9px;
+}
+
+.compat-status > div,
+.compat-address {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #f87171;
+  box-shadow: 0 0 0 3px rgba(248, 113, 113, 0.14);
+  flex: 0 0 auto;
+}
+
+.compat-status.running .status-dot {
+  background: #34d399;
+  box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.14);
+}
+
+.compat-status span,
+.compat-address span,
+.quick-stat span,
+.quick-stat small {
+  font-size: 8px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: rgba(226, 232, 240, 0.56);
+}
+
+.compat-status strong,
+.compat-address strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #ffffff;
+  font-size: 11px;
+  line-height: 1.15;
+}
+
+.compat-address {
+  padding: 8px 9px;
+  align-items: flex-end;
+}
+
+.quick-metric-grid {
+  margin-top: 8px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.quick-stat {
+  min-width: 0;
+  padding: 8px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.quick-stat strong {
+  display: block;
+  margin-top: 2px;
+  color: #ffffff;
+  font-size: 16px;
+  line-height: 1.05;
+  font-variant-numeric: tabular-nums;
+}
+
+.quick-stat small {
+  display: block;
+  margin-top: 3px;
+  white-space: nowrap;
 }
 
 .quick-view-content {

@@ -178,6 +178,19 @@ pub struct CombinedTodayUsage {
     pub last_refresh_at: String,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QuickViewSummary {
+    pub compat_api_running: bool,
+    pub compat_api_listen_address: String,
+    pub compat_api_started_at: Option<String>,
+    pub compat_api_profiles_count: i64,
+    pub recent_one_hour_request_count: i64,
+    pub recent_one_hour_error_count: i64,
+    pub recent_one_hour_error_rate: f64,
+    pub usage: CombinedTodayUsage,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DateRangeInput {
@@ -413,7 +426,7 @@ pub enum RequestType {
 
 impl RequestType {
     pub fn is_stream(self) -> bool {
-        matches!(self, Self::Stream)
+        self == Self::Stream
     }
 
     pub fn as_str(self) -> &'static str {

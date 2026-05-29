@@ -1,17 +1,22 @@
 use std::time::Instant;
 
-use tauri::{AppHandle, Manager};
+use serde_json::json;
+use tauri::{AppHandle, Emitter, Manager};
 
-use crate::compat_api::CompatApiServer;
+use crate::compat_api;
 use crate::db;
+use crate::localization;
 use crate::models::{
     BootstrapInfo, ClaudeOverview, CodexOverview, CombinedTodayUsage, CombinedUsage,
     CompatApiStatus, DatabaseHealth, DatabaseSummary, DateRangeInput, ManagedLaunchInput,
     ManagedLaunchResult, PaginatedRequestRecords, PerformanceQualitySummary,
     ProviderHealthCheckResult, ProviderProfileRecord, ProviderProfileUpsertInput,
-    ProviderRuntimeStatus, RequestFilterInput, RequestFilterOptions, RequestRecordDetail,
-    UsageHistogram, UsageHistogramInput,
+    ProviderRuntimeStatus, QuickViewSummary, RequestFilterInput, RequestFilterOptions,
+    RequestRecordDetail, UsageHistogram, UsageHistogramInput,
 };
+
+const UI_LANGUAGE_CHANGED_EVENT: &str = "ui-language-changed";
+const COMPAT_API_STATUS_CHANGED_EVENT: &str = "compat-api-status-changed";
 
 #[tauri::command]
 pub fn get_bootstrap_info(app: AppHandle) -> Result<BootstrapInfo, String> {
@@ -48,6 +53,55 @@ pub fn initialize_local_database(app: AppHandle) -> Result<DatabaseHealth, Strin
 #[tauri::command]
 pub fn database_healthcheck(app: AppHandle) -> Result<DatabaseHealth, String> {
     db::healthcheck(&app)
+}
+
+#[tauri::command]
+pub fn get_ui_language(app: AppHandle) -> Result<String, String> {
+    Ok(localization::resolve_ui_language(&app).as_str().to_string())
+}
+
+#[tauri::command]
+pub async fn set_ui_language(app: AppHandle, language: String) -> Result<String, String> {
+    let language = localization::persist_ui_language(&app, &language)?;
+    let value = language.as_str().to_string();
+    let _ = app.emit(
+        UI_LANGUAGE_CHANGED_EVENT,
+        json!({ "language": value.clone() }),
+    );
+    let _ = crate::tray::refresh_tray_menu(&app).await;
+
+    Ok(value)
+}
+
+#[tauri::command]
+pub fn open_main_page(app: AppHandle, page: String, period: Option<String>) -> Result<(), String> {
+    let page = normalize_main_page(&page)?;
+    let period = period
+        .as_deref()
+        .map(normalize_overview_period)
+        .transpose()?;
+
+    if let Some(tray_runtime) = app.try_state::<crate::tray::TrayRuntime>() {
+        let _ = tray_runtime.cancel_hover_for_app(&app);
+    }
+
+    crate::tray::show_main_window_page(&app, page, period)
+}
+
+#[tauri::command]
+pub fn quick_view_pointer_enter(app: AppHandle) -> Result<(), String> {
+    if let Some(tray_runtime) = app.try_state::<crate::tray::TrayRuntime>() {
+        tray_runtime.cancel_pending_hover_action();
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn quick_view_pointer_leave(app: AppHandle) -> Result<(), String> {
+    if let Some(tray_runtime) = app.try_state::<crate::tray::TrayRuntime>() {
+        tray_runtime.cancel_hover_for_app(&app)?;
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -119,6 +173,31 @@ pub fn get_combined_today_usage(app: AppHandle) -> Result<CombinedTodayUsage, St
 }
 
 #[tauri::command]
+pub async fn get_quick_view_summary(app: AppHandle) -> Result<QuickViewSummary, String> {
+    db::initialize(&app)?;
+    let usage = db::combined_today_usage(&app)?;
+    let (recent_one_hour_request_count, recent_one_hour_error_count) =
+        db::recent_request_window_summary(&app, "-1 hour")?;
+    let compat_api = compat_api::get_status(&app).await;
+    let recent_one_hour_error_rate = if recent_one_hour_request_count == 0 {
+        0.0
+    } else {
+        recent_one_hour_error_count as f64 / recent_one_hour_request_count as f64
+    };
+
+    Ok(QuickViewSummary {
+        compat_api_running: compat_api.running,
+        compat_api_listen_address: compat_api.listen_address,
+        compat_api_started_at: compat_api.started_at,
+        compat_api_profiles_count: compat_api.profiles_count,
+        recent_one_hour_request_count,
+        recent_one_hour_error_count,
+        recent_one_hour_error_rate,
+        usage,
+    })
+}
+
+#[tauri::command]
 pub fn get_combined_usage(app: AppHandle, range: DateRangeInput) -> Result<CombinedUsage, String> {
     db::initialize(&app)?;
     db::combined_usage_for_range(&app, range.start_date, range.end_date)
@@ -167,7 +246,9 @@ pub fn get_provider_runtime_statuses(app: AppHandle) -> Result<Vec<ProviderRunti
 }
 
 #[tauri::command]
-pub fn get_performance_quality_summary(app: AppHandle) -> Result<PerformanceQualitySummary, String> {
+pub fn get_performance_quality_summary(
+    app: AppHandle,
+) -> Result<PerformanceQualitySummary, String> {
     db::initialize(&app)?;
     db::performance_quality_summary(&app)
 }
@@ -285,45 +366,48 @@ fn provider_health_endpoint(profile: &ProviderProfileRecord) -> Result<String, S
     Ok(format!("{}/v1/models", base_url.trim_end_matches('/')))
 }
 
+fn normalize_main_page(page: &str) -> Result<&'static str, String> {
+    match page {
+        "overview" => Ok("overview"),
+        "requests" => Ok("requests"),
+        "settings" => Ok("settings"),
+        _ => Err(format!("Unknown main window page: {page}")),
+    }
+}
+
+fn normalize_overview_period(period: &str) -> Result<&'static str, String> {
+    match period {
+        "today" => Ok("today"),
+        "week" => Ok("week"),
+        "month" => Ok("month"),
+        "total" => Ok("total"),
+        _ => Err(format!("Unknown overview period: {period}")),
+    }
+}
+
 #[tauri::command]
 pub async fn start_compat_api_server(
     app: AppHandle,
     listen_address: String,
 ) -> Result<CompatApiStatus, String> {
-    if let Some(server) = app.try_state::<CompatApiServer>() {
-        if server.get_status().await.running {
-            return Ok(server.get_status().await);
-        }
-
-        server.set_listen_address(listen_address).await?;
-        server.start().await?;
-        return Ok(server.get_status().await);
-    }
-
-    let server = CompatApiServer::new(app.clone(), listen_address);
-    app.manage(server);
-
-    let server = app.state::<CompatApiServer>();
-    server.start().await?;
-    Ok(server.get_status().await)
+    let status = compat_api::start_server(&app, listen_address).await?;
+    emit_compat_api_status_changed(&app, &status).await;
+    Ok(status)
 }
 
 #[tauri::command]
 pub async fn stop_compat_api_server(app: AppHandle) -> Result<CompatApiStatus, String> {
-    let server = app.state::<CompatApiServer>();
-    server.stop().await?;
-    Ok(server.get_status().await)
+    let status = compat_api::stop_server(&app).await?;
+    emit_compat_api_status_changed(&app, &status).await;
+    Ok(status)
 }
 
 #[tauri::command]
 pub async fn get_compat_api_status(app: AppHandle) -> Result<CompatApiStatus, String> {
-    match app.try_state::<CompatApiServer>() {
-        Some(server) => Ok(server.get_status().await),
-        None => Ok(CompatApiStatus {
-            running: false,
-            listen_address: "127.0.0.1:8688".to_string(),
-            started_at: None,
-            profiles_count: 0,
-        }),
-    }
+    Ok(compat_api::get_status(&app).await)
+}
+
+async fn emit_compat_api_status_changed(app: &AppHandle, status: &CompatApiStatus) {
+    let _ = app.emit(COMPAT_API_STATUS_CHANGED_EVENT, status.clone());
+    let _ = crate::tray::refresh_tray_menu(app).await;
 }

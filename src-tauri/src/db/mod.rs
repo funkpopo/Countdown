@@ -11,9 +11,9 @@ use crate::collectors::manager::CollectorManager;
 use crate::models::{
     ClaudeCodeSyncSummary, ClaudeOverview, CodexOverview, CodexSyncSummary, CombinedTodayUsage,
     CombinedUsage, DatabaseHealth, DatabaseSummary, ManagedLaunchInput, ManagedLaunchResult,
-    PaginatedRequestRecords, PerformanceQualitySummary, ProviderProfileRecord, ProviderProfileUpsertInput,
-    ProviderRuntimeStatus, RequestFilterInput, RequestFilterOptions, RequestRecordDetail,
-    UsageHistogram,
+    PaginatedRequestRecords, PerformanceQualitySummary, ProviderProfileRecord,
+    ProviderProfileUpsertInput, ProviderRuntimeStatus, RequestFilterInput, RequestFilterOptions,
+    RequestRecordDetail, UsageHistogram,
 };
 
 const DATABASE_FILE: &str = "countdown.db";
@@ -201,6 +201,14 @@ pub fn performance_quality_summary(app: &AppHandle) -> Result<PerformanceQuality
     repository::get_performance_quality_summary(&connection)
 }
 
+pub fn recent_request_window_summary(
+    app: &AppHandle,
+    since_modifier: &str,
+) -> Result<(i64, i64), String> {
+    let connection = open_connection(app)?;
+    repository::get_recent_request_window_summary(&connection, since_modifier)
+}
+
 pub(crate) fn open_connection(app: &AppHandle) -> Result<Connection, String> {
     let database_path = database_path(app)?;
 
@@ -237,12 +245,4 @@ pub fn rebuild_daily_usage_for_provider(
     provider: &str,
 ) -> Result<(), String> {
     repository::rebuild_daily_usage_for_provider(connection, provider)
-}
-
-pub fn rebuild_daily_usage_for_dates(
-    connection: &Connection,
-    provider: &str,
-    dates: &[String],
-) -> Result<(), String> {
-    repository::rebuild_daily_usage_for_dates(connection, provider, dates)
 }

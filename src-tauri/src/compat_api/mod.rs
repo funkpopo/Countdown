@@ -16,6 +16,7 @@ use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
+use tauri::Manager;
 use tokio::sync::{oneshot, Mutex};
 use uuid::Uuid;
 
@@ -225,6 +226,67 @@ impl CompatApiServer {
     }
 }
 
+pub async fn start_server(
+    app: &tauri::AppHandle,
+    listen_address: String,
+) -> Result<CompatApiStatus, String> {
+    if let Some(server) = app.try_state::<CompatApiServer>() {
+        if server.get_status().await.running {
+            return Ok(server.get_status().await);
+        }
+
+        server.set_listen_address(listen_address).await?;
+        server.start().await?;
+        return Ok(server.get_status().await);
+    }
+
+    let server = CompatApiServer::new(app.clone(), listen_address);
+    app.manage(server);
+
+    let server = app.state::<CompatApiServer>();
+    server.start().await?;
+    Ok(server.get_status().await)
+}
+
+pub async fn stop_server(app: &tauri::AppHandle) -> Result<CompatApiStatus, String> {
+    let Some(server) = app.try_state::<CompatApiServer>() else {
+        return Ok(default_status());
+    };
+
+    if !server.get_status().await.running {
+        return Ok(server.get_status().await);
+    }
+
+    server.stop().await?;
+    Ok(server.get_status().await)
+}
+
+pub async fn toggle_server(app: &tauri::AppHandle) -> Result<CompatApiStatus, String> {
+    let status = get_status(app).await;
+    if status.running {
+        stop_server(app).await
+    } else {
+        start_server(app, status.listen_address).await
+    }
+}
+
+pub async fn get_status(app: &tauri::AppHandle) -> CompatApiStatus {
+    if let Some(server) = app.try_state::<CompatApiServer>() {
+        server.get_status().await
+    } else {
+        default_status()
+    }
+}
+
+fn default_status() -> CompatApiStatus {
+    CompatApiStatus {
+        running: false,
+        listen_address: "127.0.0.1:8688".to_string(),
+        started_at: None,
+        profiles_count: 0,
+    }
+}
+
 fn create_router(state: CompatApiState) -> Router {
     Router::new()
         .route("/compat/health", get(handle_compat_health))
@@ -233,6 +295,12 @@ fn create_router(state: CompatApiState) -> Router {
         .route("/v1/chat/completions", post(handle_chat_completions))
         .route("/v1/messages", post(handle_messages))
         .with_state(state)
+}
+
+fn set_json_field(target: &mut serde_json::Value, key: &str, value: serde_json::Value) {
+    if let Some(object) = target.as_object_mut() {
+        object.insert(key.to_string(), value);
+    }
 }
 
 async fn handle_compat_health(State(state): State<CompatApiState>) -> Json<serde_json::Value> {
@@ -315,7 +383,10 @@ async fn handle_responses(
         .as_ref()
         .map(|config| config.base_url.clone())
         .unwrap_or_else(|| "https://api.openai.com".to_string());
-    let api_key = upstream.as_ref().map(|config| config.api_key.clone()).unwrap_or_default();
+    let api_key = upstream
+        .as_ref()
+        .map(|config| config.api_key.clone())
+        .unwrap_or_default();
 
     if is_stream {
         let mut request_body = serde_json::json!({
@@ -325,13 +396,13 @@ async fn handle_responses(
         });
 
         if let Some(ref tools) = req.tools {
-            request_body["tools"] = json!(tools);
+            set_json_field(&mut request_body, "tools", json!(tools));
         }
         if let Some(temp) = req.temperature {
-            request_body["temperature"] = json!(temp);
+            set_json_field(&mut request_body, "temperature", json!(temp));
         }
         if let Some(max_tokens) = req.max_output_tokens {
-            request_body["max_output_tokens"] = json!(max_tokens);
+            set_json_field(&mut request_body, "max_output_tokens", json!(max_tokens));
         }
 
         return create_compat_sse_stream(
@@ -358,13 +429,13 @@ async fn handle_responses(
     });
 
     if let Some(ref tools) = req.tools {
-        request_body["tools"] = json!(tools);
+        set_json_field(&mut request_body, "tools", json!(tools));
     }
     if let Some(temp) = req.temperature {
-        request_body["temperature"] = json!(temp);
+        set_json_field(&mut request_body, "temperature", json!(temp));
     }
     if let Some(max_tokens) = req.max_output_tokens {
-        request_body["max_output_tokens"] = json!(max_tokens);
+        set_json_field(&mut request_body, "max_output_tokens", json!(max_tokens));
     }
 
     let response = send_upstream_json_with_policy(
@@ -395,7 +466,12 @@ async fn handle_responses(
                     .get("output_tokens")
                     .and_then(|v| v.as_i64())
                     .unwrap_or(0) as i64;
-                record_provider_token_usage(&state, upstream.as_ref(), input_tokens + output_tokens).await;
+                record_provider_token_usage(
+                    &state,
+                    upstream.as_ref(),
+                    input_tokens + output_tokens,
+                )
+                .await;
 
                 let record = RequestRecordUpsertRecord {
                     id: request_id.clone(),
@@ -556,7 +632,10 @@ async fn handle_chat_completions(
         .as_ref()
         .map(|config| config.base_url.clone())
         .unwrap_or_else(|| "https://api.openai.com".to_string());
-    let api_key = upstream.as_ref().map(|config| config.api_key.clone()).unwrap_or_default();
+    let api_key = upstream
+        .as_ref()
+        .map(|config| config.api_key.clone())
+        .unwrap_or_default();
 
     if is_stream {
         let mut request_body = serde_json::json!({
@@ -566,13 +645,13 @@ async fn handle_chat_completions(
         });
 
         if let Some(ref tools) = req.tools {
-            request_body["tools"] = json!(tools);
+            set_json_field(&mut request_body, "tools", json!(tools));
         }
         if let Some(temp) = req.temperature {
-            request_body["temperature"] = json!(temp);
+            set_json_field(&mut request_body, "temperature", json!(temp));
         }
         if let Some(max_tokens) = req.max_tokens {
-            request_body["max_tokens"] = json!(max_tokens);
+            set_json_field(&mut request_body, "max_tokens", json!(max_tokens));
         }
 
         return create_compat_sse_stream(
@@ -599,13 +678,13 @@ async fn handle_chat_completions(
     });
 
     if let Some(ref tools) = req.tools {
-        request_body["tools"] = json!(tools);
+        set_json_field(&mut request_body, "tools", json!(tools));
     }
     if let Some(temp) = req.temperature {
-        request_body["temperature"] = json!(temp);
+        set_json_field(&mut request_body, "temperature", json!(temp));
     }
     if let Some(max_tokens) = req.max_tokens {
-        request_body["max_tokens"] = json!(max_tokens);
+        set_json_field(&mut request_body, "max_tokens", json!(max_tokens));
     }
 
     let response = send_upstream_json_with_policy(
@@ -636,7 +715,12 @@ async fn handle_chat_completions(
                     .get("completion_tokens")
                     .and_then(|v| v.as_i64())
                     .unwrap_or(0) as i64;
-                record_provider_token_usage(&state, upstream.as_ref(), input_tokens + output_tokens).await;
+                record_provider_token_usage(
+                    &state,
+                    upstream.as_ref(),
+                    input_tokens + output_tokens,
+                )
+                .await;
 
                 let choices: Vec<OpenAIChatChoice> = body
                     .get("choices")
@@ -853,7 +937,10 @@ async fn handle_messages(
         .as_ref()
         .map(|config| config.base_url.clone())
         .unwrap_or_else(|| "https://api.anthropic.com".to_string());
-    let api_key = upstream.as_ref().map(|config| config.api_key.clone()).unwrap_or_default();
+    let api_key = upstream
+        .as_ref()
+        .map(|config| config.api_key.clone())
+        .unwrap_or_default();
 
     if is_stream {
         let mut request_body = serde_json::json!({
@@ -864,13 +951,13 @@ async fn handle_messages(
         });
 
         if let Some(ref system) = req.system {
-            request_body["system"] = system.clone();
+            set_json_field(&mut request_body, "system", system.clone());
         }
         if let Some(ref tools) = req.tools {
-            request_body["tools"] = json!(tools);
+            set_json_field(&mut request_body, "tools", json!(tools));
         }
         if let Some(temp) = req.temperature {
-            request_body["temperature"] = json!(temp);
+            set_json_field(&mut request_body, "temperature", json!(temp));
         }
 
         return create_compat_sse_stream(
@@ -899,13 +986,13 @@ async fn handle_messages(
     });
 
     if let Some(ref system) = req.system {
-        request_body["system"] = system.clone();
+        set_json_field(&mut request_body, "system", system.clone());
     }
     if let Some(ref tools) = req.tools {
-        request_body["tools"] = json!(tools);
+        set_json_field(&mut request_body, "tools", json!(tools));
     }
     if let Some(temp) = req.temperature {
-        request_body["temperature"] = json!(temp);
+        set_json_field(&mut request_body, "temperature", json!(temp));
     }
 
     let response = send_upstream_json_with_policy(
@@ -937,7 +1024,12 @@ async fn handle_messages(
                     .get("output_tokens")
                     .and_then(|v| v.as_i64())
                     .unwrap_or(0) as i64;
-                record_provider_token_usage(&state, upstream.as_ref(), input_tokens + output_tokens).await;
+                record_provider_token_usage(
+                    &state,
+                    upstream.as_ref(),
+                    input_tokens + output_tokens,
+                )
+                .await;
 
                 let content: Vec<serde_json::Value> = body
                     .get("content")
@@ -1080,7 +1172,10 @@ async fn handle_messages_via_openai(
         .as_ref()
         .map(|config| config.base_url.clone())
         .unwrap_or_else(|| "https://api.openai.com".to_string());
-    let api_key = upstream.as_ref().map(|config| config.api_key.clone()).unwrap_or_default();
+    let api_key = upstream
+        .as_ref()
+        .map(|config| config.api_key.clone())
+        .unwrap_or_default();
 
     let mut request_body = serde_json::json!({
         "model": req.model,
@@ -1090,10 +1185,14 @@ async fn handle_messages_via_openai(
     });
 
     if let Some(ref tools) = req.tools {
-        request_body["tools"] = json!(anthropic_tools_to_openai(tools));
+        set_json_field(
+            &mut request_body,
+            "tools",
+            json!(anthropic_tools_to_openai(tools)),
+        );
     }
     if let Some(temp) = req.temperature {
-        request_body["temperature"] = json!(temp);
+        set_json_field(&mut request_body, "temperature", json!(temp));
     }
 
     if req.stream.unwrap_or(false) {
@@ -1141,7 +1240,8 @@ async fn handle_messages_via_openai(
                 .get("completion_tokens")
                 .and_then(|v| v.as_i64())
                 .unwrap_or(0);
-            record_provider_token_usage(&state, upstream.as_ref(), input_tokens + output_tokens).await;
+            record_provider_token_usage(&state, upstream.as_ref(), input_tokens + output_tokens)
+                .await;
             let content = openai_chat_body_to_anthropic_content(&body);
 
             record_compat_request(
@@ -1244,7 +1344,10 @@ async fn handle_chat_completions_via_anthropic(
         .as_ref()
         .map(|config| config.base_url.clone())
         .unwrap_or_else(|| "https://api.anthropic.com".to_string());
-    let api_key = upstream.as_ref().map(|config| config.api_key.clone()).unwrap_or_default();
+    let api_key = upstream
+        .as_ref()
+        .map(|config| config.api_key.clone())
+        .unwrap_or_default();
     let (system, messages) = openai_messages_to_anthropic(&req.messages);
 
     let mut request_body = serde_json::json!({
@@ -1254,13 +1357,17 @@ async fn handle_chat_completions_via_anthropic(
         "stream": req.stream.unwrap_or(false),
     });
     if let Some(system) = system {
-        request_body["system"] = system;
+        set_json_field(&mut request_body, "system", system);
     }
     if let Some(ref tools) = req.tools {
-        request_body["tools"] = json!(openai_tools_to_anthropic(tools));
+        set_json_field(
+            &mut request_body,
+            "tools",
+            json!(openai_tools_to_anthropic(tools)),
+        );
     }
     if let Some(temp) = req.temperature {
-        request_body["temperature"] = json!(temp);
+        set_json_field(&mut request_body, "temperature", json!(temp));
     }
 
     if req.stream.unwrap_or(false) {
@@ -1309,7 +1416,8 @@ async fn handle_chat_completions_via_anthropic(
                 .get("output_tokens")
                 .and_then(|v| v.as_i64())
                 .unwrap_or(0);
-            record_provider_token_usage(&state, upstream.as_ref(), input_tokens + output_tokens).await;
+            record_provider_token_usage(&state, upstream.as_ref(), input_tokens + output_tokens)
+                .await;
             let message = anthropic_body_to_openai_message(&body);
 
             record_compat_request(
@@ -1493,10 +1601,14 @@ async fn enforce_provider_rate_limit(state: &CompatApiState, upstream: &Upstream
             }
         };
 
-        match wait_for {
-            Some(duration) if !duration.is_zero() => tokio::time::sleep(duration).await,
-            Some(_) => tokio::task::yield_now().await,
-            None => return,
+        if let Some(duration) = wait_for {
+            if duration.is_zero() {
+                tokio::task::yield_now().await;
+            } else {
+                tokio::time::sleep(duration).await;
+            }
+        } else {
+            return;
         }
     }
 }
@@ -2633,11 +2745,15 @@ fn read_usize_config(value: Option<&serde_json::Value>) -> Option<usize> {
 }
 
 fn read_i64_config(value: Option<&serde_json::Value>) -> Option<i64> {
-    value.and_then(|value| value.as_i64()).filter(|value| *value > 0)
+    value
+        .and_then(|value| value.as_i64())
+        .filter(|value| *value > 0)
 }
 
 fn read_u64_config(value: Option<&serde_json::Value>) -> Option<u64> {
-    value.and_then(|value| value.as_u64()).filter(|value| *value > 0)
+    value
+        .and_then(|value| value.as_u64())
+        .filter(|value| *value > 0)
 }
 
 fn supports_protocol(api_format: &str, protocol: UpstreamProtocol) -> bool {
@@ -2797,7 +2913,10 @@ mod tests {
         let mut counter = 0_usize;
         let selected = (0..5)
             .map(|_| {
-                let current = candidates[counter % candidates.len()];
+                let current = candidates
+                    .get(counter % candidates.len())
+                    .copied()
+                    .expect("round-robin candidate exists");
                 counter = counter.wrapping_add(1);
                 current
             })
@@ -2805,7 +2924,13 @@ mod tests {
 
         assert_eq!(
             selected,
-            vec!["account-a", "account-b", "account-c", "account-a", "account-b"]
+            vec![
+                "account-a",
+                "account-b",
+                "account-c",
+                "account-a",
+                "account-b"
+            ]
         );
     }
 
@@ -2815,7 +2940,8 @@ mod tests {
             "limited",
             "openai",
             true,
-            Some(r#"{
+            Some(
+                r#"{
                 "rate_limit": {
                     "requests_per_minute": 42,
                     "daily_token_budget": 90000
@@ -2824,7 +2950,8 @@ mod tests {
                     "max_attempts": 4,
                     "backoff_ms": 750
                 }
-            }"#),
+            }"#,
+            ),
         );
         let rate_limit = profile_rate_limit_config(&configured);
         let retry = profile_retry_config(&configured);
@@ -2876,10 +3003,19 @@ mod tests {
 
         let (system, anthropic_messages) = openai_messages_to_anthropic(&messages);
 
+        let tool_use = anthropic_messages
+            .first()
+            .and_then(|message| message.get("content"))
+            .and_then(|content| content.get(0))
+            .expect("assistant tool use content exists");
+        let tool_result = anthropic_messages
+            .get(1)
+            .expect("tool result message exists");
+
         assert_eq!(system, Some(json!("Stay terse.")));
         assert_eq!(
-            anthropic_messages[0]["content"][0],
-            json!({
+            tool_use,
+            &json!({
                 "type": "tool_use",
                 "id": "call_1",
                 "name": "lookup",
@@ -2887,8 +3023,8 @@ mod tests {
             })
         );
         assert_eq!(
-            anthropic_messages[1],
-            json!({
+            tool_result,
+            &json!({
                 "role": "user",
                 "content": [{
                     "type": "tool_result",
@@ -2912,11 +3048,16 @@ mod tests {
         }];
 
         let openai_messages = anthropic_messages_to_openai(&None, &messages);
+        let openai_message = openai_messages.first().expect("OpenAI message exists");
+        let tool_call = openai_message
+            .get("tool_calls")
+            .and_then(|tool_calls| tool_calls.get(0))
+            .expect("OpenAI tool call exists");
 
-        assert_eq!(openai_messages[0]["role"], json!("assistant"));
+        assert_eq!(openai_message.get("role"), Some(&json!("assistant")));
         assert_eq!(
-            openai_messages[0]["tool_calls"][0],
-            json!({
+            tool_call,
+            &json!({
                 "id": "toolu_1",
                 "type": "function",
                 "function": {

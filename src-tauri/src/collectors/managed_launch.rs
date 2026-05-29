@@ -225,23 +225,23 @@ fn merge_usage_value(provider: &str, capture: &mut UsageCapture, value: &Value) 
     capture.response_summary = Some(value.to_string());
 
     if capture.session_id.is_none() {
-        capture.session_id = first_string(value, &["session_id", "sessionId", "session"]);
+        capture.session_id = first_string(value, ["session_id", "sessionId", "session"].as_slice());
     }
     if capture.request_id.is_none() {
-        capture.request_id = first_string(value, &["request_id", "requestId", "id", "turn_id"]);
+        capture.request_id = first_string(value, ["request_id", "requestId", "id", "turn_id"].as_slice());
     }
     if capture.model.is_none() {
-        capture.model = first_string(value, &["model"]);
+        capture.model = first_string(value, ["model"].as_slice());
     }
 
     if let Some(ms) = first_i64(
         value,
-        &[
+        [
             "ttft_ms",
             "ttftMs",
             "time_to_first_token_ms",
             "timeToFirstTokenMs",
-        ],
+        ].as_slice(),
     ) {
         capture.ttft_ms = Some(ms);
     }
@@ -257,45 +257,45 @@ fn merge_usage_value(provider: &str, capture: &mut UsageCapture, value: &Value) 
 
     let input = first_i64(
         candidate,
-        &[
+        [
             "input_tokens",
             "inputTokens",
             "prompt_tokens",
             "promptTokens",
-        ],
+        ].as_slice(),
     );
     let output = first_i64(
         candidate,
-        &[
+        [
             "output_tokens",
             "outputTokens",
             "completion_tokens",
             "completionTokens",
-        ],
+        ].as_slice(),
     );
     let cached = first_i64(
         candidate,
-        &[
+        [
             "cached_input_tokens",
             "cachedInputTokens",
             "cache_read_input_tokens",
             "cacheReadInputTokens",
-        ],
+        ].as_slice(),
     )
     .unwrap_or(0)
         + first_i64(
             candidate,
-            &["cache_creation_input_tokens", "cacheCreationInputTokens"],
+            ["cache_creation_input_tokens", "cacheCreationInputTokens"].as_slice(),
         )
         .unwrap_or(0);
     let reasoning = first_i64(
         candidate,
-        &[
+        [
             "reasoning_tokens",
             "reasoningTokens",
             "reasoning_output_tokens",
             "reasoningOutputTokens",
-        ],
+        ].as_slice(),
     );
 
     if let Some(input) = input {
@@ -330,7 +330,7 @@ fn merge_usage_value(provider: &str, capture: &mut UsageCapture, value: &Value) 
     if provider == CLAUDE_PROVIDER {
         if let Some(message) = value.get("message") {
             if capture.model.is_none() {
-                capture.model = first_string(message, &["model"]);
+                capture.model = first_string(message, ["model"].as_slice());
             }
             if let Some(usage) = message.get("usage") {
                 merge_usage_value(provider, capture, usage);

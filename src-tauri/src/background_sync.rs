@@ -38,6 +38,13 @@ pub fn start(app: AppHandle) {
     });
 }
 
+pub fn sync_now(app: AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        let mut fingerprint = None;
+        let _ = run_once(app, &mut fingerprint, true).await;
+    });
+}
+
 async fn run_once(
     app: AppHandle,
     last_fingerprint: &mut Option<SourceFingerprint>,

@@ -6,7 +6,7 @@ struct Migration {
     sql: &'static str,
 }
 
-const MIGRATIONS: &[Migration] = &[
+const MIGRATIONS: &[Migration] = [
     Migration {
         version: 1,
         name: "phase2_initial_schema",
@@ -118,7 +118,7 @@ const MIGRATIONS: &[Migration] = &[
         );
     ",
     },
-];
+].as_slice();
 
 pub fn apply_migrations(connection: &Connection) -> Result<(), String> {
     connection
@@ -149,7 +149,7 @@ pub fn apply_migrations(connection: &Connection) -> Result<(), String> {
         .collect::<Result<Vec<_>, _>>()
         .map_err(|error| error.to_string())?;
 
-    for migration in MIGRATIONS {
+    for migration in MIGRATIONS.as_ref() {
         if applied_versions.contains(&migration.version) {
             continue;
         }

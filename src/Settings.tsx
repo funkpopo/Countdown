@@ -1,4 +1,5 @@
 import { useEffect, useState, useTransition } from "react";
+import { listen } from "@tauri-apps/api/event";
 import {
   listProviderProfiles,
   getProviderRuntimeStatuses,
@@ -516,6 +517,29 @@ function Settings() {
 
   useEffect(() => {
     refresh();
+  }, []);
+
+  useEffect(() => {
+    let disposed = false;
+    let unlistenStatus: (() => void) | null = null;
+
+    void listen<CompatApiStatus>("compat-api-status-changed", (event) => {
+      setCompatStatus(event.payload);
+      if (event.payload.listenAddress) {
+        setListenAddress(event.payload.listenAddress);
+      }
+    }).then((dispose) => {
+      if (disposed) {
+        dispose();
+        return;
+      }
+      unlistenStatus = dispose;
+    });
+
+    return () => {
+      disposed = true;
+      unlistenStatus?.();
+    };
   }, []);
 
   const handleStartServer = async () => {

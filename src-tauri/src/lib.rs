@@ -4,16 +4,20 @@ mod background_sync;
 mod collectors;
 mod compat_api;
 mod db;
+mod localization;
 mod models;
 mod tray;
 
 use app::commands::run_managed_launch;
 use app::commands::{
-    check_all_provider_health, check_provider_health, get_provider_runtime_statuses,
-    get_performance_quality_summary, get_request_detail, get_request_filter_options,
+    check_all_provider_health, check_provider_health, get_performance_quality_summary,
+    get_provider_runtime_statuses, get_request_detail, get_request_filter_options,
     list_filtered_requests,
 };
-use app::commands::{database_healthcheck, get_bootstrap_info, initialize_local_database};
+use app::commands::{
+    database_healthcheck, get_bootstrap_info, get_ui_language, initialize_local_database,
+    set_ui_language,
+};
 use app::commands::{
     delete_provider_profile, list_provider_profiles, save_provider_profile,
     save_provider_profiles_batch,
@@ -21,15 +25,17 @@ use app::commands::{
 use app::commands::{get_claude_code_overview, get_codex_overview};
 use app::commands::{
     get_combined_today_usage, get_combined_usage, get_combined_usage_total, get_database_summary,
-    get_usage_histogram,
+    get_quick_view_summary, get_usage_histogram,
 };
 use app::commands::{get_compat_api_status, start_compat_api_server, stop_compat_api_server};
+use app::commands::{open_main_page, quick_view_pointer_enter, quick_view_pointer_leave};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let tray_runtime = tray::TrayRuntime::new();
     let tray_runtime_for_setup = tray_runtime.clone();
     let tray_runtime_for_events = tray_runtime.clone();
+    let context = tauri::generate_context!();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
@@ -48,6 +54,11 @@ pub fn run() {
             get_bootstrap_info,
             initialize_local_database,
             database_healthcheck,
+            get_ui_language,
+            set_ui_language,
+            open_main_page,
+            quick_view_pointer_enter,
+            quick_view_pointer_leave,
             get_database_summary,
             list_provider_profiles,
             save_provider_profile,
@@ -57,6 +68,7 @@ pub fn run() {
             run_managed_launch,
             get_claude_code_overview,
             get_combined_today_usage,
+            get_quick_view_summary,
             get_combined_usage,
             get_combined_usage_total,
             get_usage_histogram,
@@ -71,6 +83,6 @@ pub fn run() {
             stop_compat_api_server,
             get_compat_api_status
         ])
-        .run(tauri::generate_context!())
+        .run(context)
         .expect("error while running tauri application");
 }

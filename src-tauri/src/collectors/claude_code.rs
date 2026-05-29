@@ -61,10 +61,6 @@ struct ParsedProjectFile {
 }
 
 impl ClaudeCodeCollector {
-    pub fn import_default_sessions() -> Result<ClaudeImportResult, String> {
-        Self::import_sessions_since(None)
-    }
-
     pub fn import_sessions_since(
         after_time: Option<chrono::DateTime<chrono::Utc>>,
     ) -> Result<ClaudeImportResult, String> {

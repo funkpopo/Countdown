@@ -1,5 +1,11 @@
 import { useEffect, useMemo, useCallback, useState } from "react";
-import { getCombinedTodayUsage, type CombinedTodayUsage } from "./desktop";
+import {
+  getQuickViewSummary,
+  openMainPage,
+  quickViewPointerEnter,
+  quickViewPointerLeave,
+  type QuickViewSummary,
+} from "./desktop";
 import { useLanguage } from "./i18n";
 import "./QuickView.css";
 
@@ -42,18 +48,36 @@ function useFormatClock() {
   );
 }
 
+function useFormatPercent() {
+  const { language } = useLanguage();
+  const formatter = useMemo(
+    () =>
+      new Intl.NumberFormat(language === "zh" ? "zh-CN" : "en-US", {
+        style: "percent",
+        maximumFractionDigits: 1,
+      }),
+    [language],
+  );
+
+  return useCallback(
+    (value: number | null | undefined) => formatter.format(value ?? 0),
+    [formatter],
+  );
+}
+
 function QuickView() {
   const { t } = useLanguage();
   const formatNumber = useFormatNumber();
   const formatClock = useFormatClock();
-  const [usage, setUsage] = useState<CombinedTodayUsage | null>(null);
+  const formatPercent = useFormatPercent();
+  const [summary, setSummary] = useState<QuickViewSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = async () => {
     try {
       setError(null);
-      const data = await getCombinedTodayUsage();
-      setUsage(data);
+      const data = await getQuickViewSummary();
+      setSummary(data);
     } catch (refreshError) {
       setError(
         refreshError instanceof Error ? refreshError.message : t("error.refreshUsage"),
@@ -67,6 +91,7 @@ function QuickView() {
     return () => clearInterval(interval);
   }, []);
 
+  const usage = summary?.usage ?? null;
   const providerCards = usage
     ? [
         {
@@ -88,8 +113,35 @@ function QuickView() {
       ]
     : [];
 
+  const handleOpenMain = () => {
+    void openMainPage("overview", "today").catch((openError) => {
+      setError(openError instanceof Error ? openError.message : t("error.openMainWindow"));
+    });
+  };
+
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== "Enter" && event.key !== " ") {
+      return;
+    }
+
+    event.preventDefault();
+    handleOpenMain();
+  };
+
   return (
-    <div className="quick-view-shell">
+    <div
+      className="quick-view-shell"
+      role="button"
+      tabIndex={0}
+      onClick={handleOpenMain}
+      onKeyDown={handleKeyDown}
+      onMouseEnter={() => {
+        void quickViewPointerEnter();
+      }}
+      onMouseLeave={() => {
+        void quickViewPointerLeave();
+      }}
+    >
       <div className="quick-view-panel">
         <div className="quick-view-header">
           <div className="header-copy">
@@ -118,6 +170,44 @@ function QuickView() {
 
         {error ? <div className="error-notice">{error}</div> : null}
 
+        {summary ? (
+          <>
+            <div className="runtime-strip">
+              <div className={`compat-status ${summary.compatApiRunning ? "running" : "stopped"}`}>
+                <span className="status-dot" />
+                <div>
+                  <span>{t("quickview.compatApi")}</span>
+                  <strong>
+                    {summary.compatApiRunning ? t("quickview.running") : t("quickview.stopped")}
+                  </strong>
+                </div>
+              </div>
+              <div className="compat-address">
+                <span>{t("quickview.profiles", formatNumber(summary.compatApiProfilesCount))}</span>
+                <strong>{summary.compatApiListenAddress}</strong>
+              </div>
+            </div>
+
+            <div className="quick-metric-grid">
+              <section className="quick-stat">
+                <span>{t("quickview.lastHour")}</span>
+                <strong>{formatNumber(summary.recentOneHourRequestCount)}</strong>
+                <small>{t("quickview.recentRequests")}</small>
+              </section>
+              <section className="quick-stat">
+                <span>{t("quickview.errors")}</span>
+                <strong>{formatNumber(summary.recentOneHourErrorCount)}</strong>
+                <small>{t("quickview.recentErrors")}</small>
+              </section>
+              <section className="quick-stat">
+                <span>{t("quickview.errorRate")}</span>
+                <strong>{formatPercent(summary.recentOneHourErrorRate)}</strong>
+                <small>{t("quickview.recentErrors")}</small>
+              </section>
+            </div>
+          </>
+        ) : null}
+
         {usage ? (
           <div className="quick-view-content">
             <div className="provider-grid">
@@ -125,7 +215,9 @@ function QuickView() {
                 <section key={card.label} className={`provider-card ${card.tone}`}>
                   <div className="provider-topline">
                     <span className="provider-name">{card.label}</span>
-                    <span className="provider-requests">{card.requestCount} req</span>
+                    <span className="provider-requests">
+                      {t("quickview.providerRequests", formatNumber(card.requestCount))}
+                    </span>
                   </div>
 
                   <div className="provider-total">{formatNumber(card.totalTokens)}</div>

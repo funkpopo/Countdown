@@ -1,4 +1,6 @@
-import { createContext, useCallback, useContext, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
+import { listen } from "@tauri-apps/api/event";
+import { getUiLanguage, setUiLanguage } from "../desktop";
 import { translations, type Language, type Translations } from "./translations";
 
 type LanguageContextValue = {
@@ -23,6 +25,51 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
   const setLanguage = useCallback((lang: Language) => {
     setLanguageState(lang);
     localStorage.setItem("countdown-language", lang);
+    void setUiLanguage(lang).catch(() => {
+      // The app can still render with localStorage language if native sync fails.
+    });
+  }, []);
+
+  useEffect(() => {
+    const stored = localStorage.getItem("countdown-language");
+    if (stored === "en" || stored === "zh") {
+      void setUiLanguage(stored).catch(() => {
+        // Keep the frontend preference even when the native side is unavailable.
+      });
+    } else {
+      void getUiLanguage()
+        .then((lang) => {
+          if (lang !== "en" && lang !== "zh") return;
+          setLanguageState(lang);
+          localStorage.setItem("countdown-language", lang);
+        })
+        .catch(() => {
+          // Keep the default language when native preference lookup fails.
+        });
+    }
+  }, []);
+
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: (() => void) | null = null;
+
+    void listen<{ language?: Language }>("ui-language-changed", (event) => {
+      const nextLanguage = event.payload?.language;
+      if (nextLanguage !== "en" && nextLanguage !== "zh") return;
+      setLanguageState(nextLanguage);
+      localStorage.setItem("countdown-language", nextLanguage);
+    }).then((dispose) => {
+      if (disposed) {
+        dispose();
+        return;
+      }
+      unlisten = dispose;
+    });
+
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
   }, []);
 
   const t = useCallback(

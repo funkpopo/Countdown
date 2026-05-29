@@ -95,6 +95,11 @@ function ChevronLeftIcon() {
 
 type Period = "today" | "week" | "month" | "total";
 type HistogramMetric = "tokens" | "cached" | "requests";
+type MainWindowPage = "overview" | "requests" | "settings";
+type MainWindowNavigationPayload = {
+  page?: MainWindowPage;
+  period?: Period;
+};
 const OVERVIEW_RECENT_PAGE_SIZE = 10;
 
 function getDateRangeForPeriod(period: Period): { startDate: string; endDate: string } {
@@ -125,6 +130,18 @@ function getDateRangeForPeriod(period: Period): { startDate: string; endDate: st
     startDate: `${start.getFullYear()}-${pad(start.getMonth() + 1)}-${pad(start.getDate())}`,
     endDate,
   };
+}
+
+function normalizeMainWindowPage(value: unknown): MainWindowPage {
+  return value === "requests" || value === "settings" ? value : "overview";
+}
+
+function normalizeOverviewPeriod(value: unknown): Period | null {
+  if (value === "today" || value === "week" || value === "month" || value === "total") {
+    return value;
+  }
+
+  return null;
 }
 
 type OverviewPageProps = {
@@ -779,7 +796,7 @@ function App() {
   const [histogramMetric, setHistogramMetric] = useState<HistogramMetric>("tokens");
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
-  const [currentPage, setCurrentPage] = useState<"overview" | "requests" | "settings">("overview");
+  const [currentPage, setCurrentPage] = useState<MainWindowPage>("overview");
   const [visitedRequests, setVisitedRequests] = useState(false);
   const [visitedSettings, setVisitedSettings] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -910,11 +927,40 @@ function App() {
     });
   };
 
-  const handleNavigate = (page: "overview" | "requests" | "settings") => {
+  const handleNavigate = (page: MainWindowPage) => {
     if (page === "requests") setVisitedRequests(true);
     if (page === "settings") setVisitedSettings(true);
     setCurrentPage(page);
   };
+
+  useEffect(() => {
+    let disposed = false;
+    let unlistenNavigate: (() => void) | null = null;
+
+    void listen<MainWindowNavigationPayload>("main-window-navigate", (event) => {
+      const page = normalizeMainWindowPage(event.payload?.page);
+      const nextPeriod = normalizeOverviewPeriod(event.payload?.period);
+
+      if (page === "requests") setVisitedRequests(true);
+      if (page === "settings") setVisitedSettings(true);
+      if (page === "overview" && nextPeriod) {
+        setPeriod(nextPeriod);
+        fetchPeriodUsage(nextPeriod);
+      }
+      setCurrentPage(page);
+    }).then((dispose) => {
+      if (disposed) {
+        dispose();
+        return;
+      }
+      unlistenNavigate = dispose;
+    });
+
+    return () => {
+      disposed = true;
+      unlistenNavigate?.();
+    };
+  }, []);
 
   const navItems = [
     { key: "overview" as const, label: t("nav.overview"), icon: GridIcon },
