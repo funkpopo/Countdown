@@ -35,7 +35,7 @@ pub fn run() {
     let tray_runtime = tray::TrayRuntime::new();
     let tray_runtime_for_setup = tray_runtime.clone();
     let tray_runtime_for_events = tray_runtime.clone();
-    let context = tauri::generate_context!();
+    let context = tauri::generate_context!("tauri.conf.json");
 
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
