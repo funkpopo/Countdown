@@ -1,4 +1,4 @@
-import { lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition } from "react";
+import { lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState, useTransition } from "react";
 import { listen } from "@tauri-apps/api/event";
 import {
   getClaudeCodeOverview,
@@ -20,28 +20,13 @@ import {
   type UsageHistogram,
 } from "./desktop";
 import { useLanguage } from "./i18n";
+import { useFormatNumber, useFormatMs, useFormatPercent, useFormatDateTime } from "./i18n/formatters";
+import { isFirstLaunch } from "./desktop";
+import { Wizard } from "./Wizard";
 import "./App.css";
 
 const Requests = lazy(() => import("./Requests"));
 const Settings = lazy(() => import("./Settings"));
-
-function useFormatNumber() {
-  const { language } = useLanguage();
-  const formatter = useMemo(() => new Intl.NumberFormat(language === "zh" ? "zh-CN" : "en-US"), [language]);
-  return useCallback((value: number | null | undefined) => {
-    if (value == null) return "0";
-    return formatter.format(value);
-  }, [formatter]);
-}
-
-function useFormatMs() {
-  const { t } = useLanguage();
-  return useCallback((value: number | null | undefined) => {
-    if (value == null) return t("n/a");
-    if (value >= 1000) return `${(value / 1000).toFixed(2)} s`;
-    return `${value} ms`;
-  }, [t]);
-}
 
 function renderUsageStat(label: string, value: string) {
   return (
@@ -182,6 +167,7 @@ const OverviewPage = memo(function OverviewPage({
   const { t } = useLanguage();
   const formatNumber = useFormatNumber();
   const formatMs = useFormatMs();
+  const formatDateTime = useFormatDateTime();
   const pageRef = useRef<HTMLDivElement | null>(null);
   const scrollTopRef = useRef(0);
   const hasRestoredScrollRef = useRef(false);
@@ -334,7 +320,7 @@ const OverviewPage = memo(function OverviewPage({
           <div className="storage-summary">
             {renderUsageStat(
               t("storage.initializedAt"),
-              databaseSummary?.initializedAt ? formatDate(databaseSummary.initializedAt) : t("n/a"),
+              databaseSummary?.initializedAt ? formatDateTime(databaseSummary.initializedAt) : t("n/a"),
             )}
             {renderUsageStat(t("storage.profiles"), formatNumber(databaseSummary?.providerProfiles.length))}
           </div>
@@ -360,6 +346,8 @@ const PerformanceQualityPanel = memo(function PerformanceQualityPanel({
   const { t } = useLanguage();
   const formatNumber = useFormatNumber();
   const formatMs = useFormatMs();
+  const formatPercent = useFormatPercent();
+  const formatDateTime = useFormatDateTime();
   const providerRows = performance?.providerModel ?? [];
   const slowRequests = performance?.slowRequests ?? [];
   const failedRequests = performance?.failedRequests ?? [];
@@ -368,7 +356,7 @@ const PerformanceQualityPanel = memo(function PerformanceQualityPanel({
     <div className="card wide performance-card">
       <div className="card-header">
         <h2>{t("performance.title")}</h2>
-        <span className="card-meta">{performance ? formatDate(performance.generatedAt) : t("n/a")}</span>
+        <span className="card-meta">{performance ? formatDateTime(performance.generatedAt) : t("n/a")}</span>
       </div>
       <div className="stats performance-stats">
         {renderUsageStat(t("performance.avgTtft"), formatMs(performance?.overall.avgTtftMs ?? null))}
@@ -481,12 +469,16 @@ function RequestMiniList({
   requests,
   value,
   emptyText,
+  formatDateTime: formatDateTimeProp,
 }: {
   title: string;
   requests: RequestRecordListItem[];
   value: (request: RequestRecordListItem) => string;
   emptyText: string;
+  formatDateTime?: (value: string | null | undefined) => string;
 }) {
+  const formatDateTimeInner = useFormatDateTime();
+  const formatDt = formatDateTimeProp ?? formatDateTimeInner;
   return (
     <div className="quality-section">
       <div className="section-title">
@@ -498,7 +490,7 @@ function RequestMiniList({
             <div className="mini-request-row" key={request.id}>
               <div>
                 <strong>{request.model ?? request.provider}</strong>
-                <span>{formatDate(request.startedAt)}</span>
+                <span>{formatDt(request.startedAt)}</span>
               </div>
               <b>{value(request)}</b>
             </div>
@@ -511,10 +503,7 @@ function RequestMiniList({
   );
 }
 
-function formatPercent(value: number | null | undefined) {
-  if (value == null) return "0%";
-  return `${(value * 100).toFixed(1)}%`;
-}
+
 
 const UsageHistogramPanel = memo(function UsageHistogramPanel({
   histogram,
@@ -615,6 +604,8 @@ const RecentRequestsPanel = memo(function RecentRequestsPanel({
 }) {
   const { t } = useLanguage();
   const formatNumber = useFormatNumber();
+  const formatDateTime = useFormatDateTime();
+  const formatMs = useFormatMs();
   const tableContainerRef = useRef<HTMLDivElement | null>(null);
   const [pageIndex, setPageIndex] = useState(0);
   const [records, setRecords] = useState<RequestRecordListItem[]>([]);
@@ -712,10 +703,10 @@ const RecentRequestsPanel = memo(function RecentRequestsPanel({
                   <td>{formatNumber(request.outputTokens)}</td>
                   <td>{formatNumber(request.cachedInputTokens)}</td>
                   <td>{formatNumber(request.reasoningTokens)}</td>
-                  <td>{formatDuration(request.ttftMs, t)}</td>
-                  <td>{formatDuration(request.durationMs, t)}</td>
+                  <td>{formatMs(request.ttftMs)}</td>
+                  <td>{formatMs(request.durationMs)}</td>
                   <td>{request.status}</td>
-                  <td>{formatDate(request.startedAt)}</td>
+                  <td>{formatDateTime(request.startedAt)}</td>
                 </tr>
               ))}
             </tbody>
@@ -752,31 +743,24 @@ const RecentRequestsPanel = memo(function RecentRequestsPanel({
   );
 });
 
-function formatDuration(value: number | null | undefined, t: (k: string) => string) {
-  if (value == null) return t("n/a");
-  if (value >= 1000) return `${(value / 1000).toFixed(2)} s`;
-  return `${value} ms`;
-}
 
-function formatDate(value: string | null | undefined) {
-  if (!value) return "N/A";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-
-  return new Intl.DateTimeFormat(undefined, {
-    timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false,
-  }).format(date);
-}
 
 function App() {
   const { t } = useLanguage();
+  const [showWizard, setShowWizard] = useState(false);
+  const [wizardChecked, setWizardChecked] = useState(false);
+
+  useEffect(() => {
+    isFirstLaunch()
+      .then((firstLaunch) => {
+        setShowWizard(firstLaunch);
+        setWizardChecked(true);
+      })
+      .catch(() => {
+        setWizardChecked(true);
+      });
+  }, []);
+
   const [databaseSummary, setDatabaseSummary] = useState<DatabaseSummary | null>(null);
   const [codexOverview, setCodexOverview] = useState<CodexOverview | null>(null);
   const [claudeOverview, setClaudeOverview] = useState<ClaudeOverview | null>(null);
@@ -968,8 +952,14 @@ function App() {
     { key: "settings" as const, label: t("nav.settings"), icon: SettingsIcon },
   ];
 
+  if (!wizardChecked) {
+    return null;
+  }
+
   return (
-    <div className="app-layout">
+    <>
+      {showWizard ? <Wizard onComplete={() => setShowWizard(false)} /> : null}
+      <div className="app-layout">
       <aside className={"sidebar" + (sidebarCollapsed ? " collapsed" : "")}>
         <div className="sidebar-header">
           <h1>{sidebarCollapsed ? t("app.title.collapsed") : t("app.title")}</h1>
@@ -1029,6 +1019,7 @@ function App() {
         )}
       </main>
     </div>
+    </>
   );
 }
 

@@ -1,0 +1,124 @@
+.wizard-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+}
+
+.wizard-card {
+  background: hsl(var(--card));
+  border: 1px solid hsl(var(--border));
+  border-radius: 12px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
+  width: 480px;
+  max-width: 90vw;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.wizard-steps {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 20px 24px 0;
+}
+
+.wizard-step-indicator {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: hsl(var(--muted-foreground));
+  padding: 4px 12px;
+  border-radius: 4px;
+  background: hsl(var(--secondary));
+}
+
+.wizard-step-indicator.active {
+  color: hsl(var(--primary));
+  background: hsl(var(--accent));
+}
+
+.wizard-step-indicator.done {
+  color: hsl(var(--success));
+  background: hsl(var(--secondary));
+}
+
+.wizard-step-connector {
+  width: 24px;
+  height: 2px;
+  background: hsl(var(--border));
+}
+
+.wizard-body {
+  flex: 1;
+  padding: 32px 24px;
+  overflow-y: auto;
+}
+
+.wizard-step-content h2 {
+  margin: 0 0 8px;
+  font-size: 20px;
+  font-weight: 700;
+  color: hsl(var(--foreground));
+}
+
+.wizard-desc {
+  margin: 0 0 20px;
+  color: hsl(var(--muted-foreground));
+  line-height: 1.5;
+}
+
+.wizard-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.wizard-field label {
+  font-weight: 600;
+  color: hsl(var(--foreground));
+}
+
+.wizard-field-desc {
+  margin: 0;
+  font-size: 13px;
+  color: hsl(var(--muted-foreground));
+}
+
+.wizard-field select {
+  max-width: 200px;
+}
+
+.wizard-success {
+  padding: 12px 16px;
+  background: hsl(var(--success) / 0.15);
+  border: 1px solid hsl(var(--success));
+  border-radius: 8px;
+  color: hsl(var(--success));
+  font-weight: 600;
+}
+
+.wizard-note {
+  margin: 0;
+  color: hsl(var(--muted-foreground));
+  line-height: 1.5;
+}
+
+.wizard-footer {
+  padding: 16px 24px;
+  border-top: 1px solid hsl(var(--border));
+}
+
+.wizard-footer-inner {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}

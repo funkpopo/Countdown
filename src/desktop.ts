@@ -361,6 +361,18 @@ export async function databaseHealthcheck(): Promise<DatabaseHealth> {
   return invoke<DatabaseHealth>("database_healthcheck");
 }
 
+export async function isFirstLaunch(): Promise<boolean> {
+  return invoke<boolean>("is_first_launch");
+}
+
+export async function completeWizard(): Promise<void> {
+  return invoke<void>("complete_wizard");
+}
+
+export async function isDbInitialized(): Promise<boolean> {
+  return invoke<boolean>("is_db_initialized");
+}
+
 export async function getUiLanguage(): Promise<UiLanguage> {
   return invoke<UiLanguage>("get_ui_language");
 }

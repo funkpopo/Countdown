@@ -10,48 +10,8 @@ import {
   type PaginatedRequestRecords,
 } from "./desktop";
 import { useLanguage } from "./i18n";
+import { useFormatNumber, useFormatMs, useFormatDateTime } from "./i18n/formatters";
 import "./Requests.css";
-
-function formatNumber(value: number | null | undefined) {
-  if (value == null) {
-    return "0";
-  }
-
-  return new Intl.NumberFormat("en-US").format(value);
-}
-
-function formatMs(value: number | null | undefined) {
-  if (value == null) {
-    return "N/A";
-  }
-
-  if (value >= 1000) {
-    return `${(value / 1000).toFixed(2)} s`;
-  }
-
-  return `${value} ms`;
-}
-
-function formatDateTime(value: string | null | undefined) {
-  if (!value) {
-    return "N/A";
-  }
-
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-
-  return date.toLocaleString(undefined, {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false,
-  });
-}
 
 function formatJsonSummary(value: string) {
   try {
@@ -150,10 +110,16 @@ function RequestDetailDrawer({
   detail,
   onClose,
   t,
+  formatNumber,
+  formatMs,
+  formatDateTime,
 }: {
   detail: RequestRecordDetail | null;
   onClose: () => void;
   t: (key: string, ...args: string[]) => string;
+  formatNumber: (value: number | null | undefined) => string;
+  formatMs: (value: number | null | undefined) => string;
+  formatDateTime: (value: string | null | undefined) => string;
 }) {
   if (!detail) {
     return null;
@@ -298,6 +264,9 @@ function renderRequestRow(
   request: RequestRecordListItem,
   onSelect: (id: string) => void,
   t: (key: string, ...args: string[]) => string,
+  formatNumber: (value: number | null | undefined) => string,
+  formatMs: (value: number | null | undefined) => string,
+  formatDateTime: (value: string | null | undefined) => string,
 ) {
   return (
     <tr key={request.id} onClick={() => onSelect(request.id)} className="request-row">
@@ -327,10 +296,16 @@ function RequestTableBody({
   records,
   onSelect,
   t,
+  formatNumber,
+  formatMs,
+  formatDateTime,
 }: {
   records: RequestRecordListItem[];
   onSelect: (id: string) => void;
   t: (key: string, ...args: string[]) => string;
+  formatNumber: (value: number | null | undefined) => string;
+  formatMs: (value: number | null | undefined) => string;
+  formatDateTime: (value: string | null | undefined) => string;
 }) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const [scrollTop, setScrollTop] = useState(0);
@@ -390,7 +365,7 @@ function RequestTableBody({
               <td colSpan={11} style={{ height: `${topSpacer}px` }} />
             </tr>
           ) : null}
-          {visibleRecords.map((record) => renderRequestRow(record, onSelect, t))}
+          {visibleRecords.map((record) => renderRequestRow(record, onSelect, t, formatNumber, formatMs, formatDateTime))}
           {bottomSpacer > 0 ? (
             <tr className="virtual-spacer" aria-hidden="true">
               <td colSpan={11} style={{ height: `${bottomSpacer}px` }} />
@@ -404,6 +379,9 @@ function RequestTableBody({
 
 function Requests() {
   const { t } = useLanguage();
+  const formatNumber = useFormatNumber();
+  const formatMs = useFormatMs();
+  const formatDateTime = useFormatDateTime();
   const [filter, setFilter] = useState<RequestFilterState>(() => loadSavedFilters());
   const [filterOptions, setFilterOptions] = useState<RequestFilterOptions | null>(null);
   const [data, setData] = useState<PaginatedRequestRecords | null>(null);
@@ -744,7 +722,7 @@ function Requests() {
       <section className="requests-table-panel">
         {data?.records.length ? (
           <>
-            <RequestTableBody records={data.records} onSelect={handleSelectRequest} t={t} />
+            <RequestTableBody records={data.records} onSelect={handleSelectRequest} t={t} formatNumber={formatNumber} formatMs={formatMs} formatDateTime={formatDateTime} />
 
             <div className="pagination">
               <button
@@ -788,7 +766,7 @@ function Requests() {
         </div>
       ) : null}
 
-      <RequestDetailDrawer detail={selectedDetail} onClose={handleCloseDetail} t={t} />
+      <RequestDetailDrawer detail={selectedDetail} onClose={handleCloseDetail} t={t} formatNumber={formatNumber} formatMs={formatMs} formatDateTime={formatDateTime} />
     </div>
   );
 }

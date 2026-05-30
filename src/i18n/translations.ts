@@ -297,6 +297,36 @@ export const translations: Record<Language, Translations> = {
     "quickview.metricOutput": "output",
     "quickview.loadingStats": "Loading today's stats...",
 
+    /* API format display */
+    "apiFormat.openai": "OpenAI",
+    "apiFormat.anthropic": "Anthropic",
+    "apiFormat.custom": "Custom OpenAI-compatible",
+
+    /* Settings - misc */
+    "settings.apiKeyNone": "none",
+    "settings.endpoint.claude": "Claude Code endpoint",
+    "settings.endpoint.openai": "OpenAI clients",
+
+    /* Wizard */
+    "wizard.title": "Welcome to Countdown",
+    "wizard.subtitle": "Let's get you set up in a few steps.",
+    "wizard.step.language": "Language",
+    "wizard.step.database": "Database",
+    "wizard.step.provider": "Provider",
+    "wizard.next": "Next",
+    "wizard.back": "Back",
+    "wizard.finish": "Finish",
+    "wizard.skip": "Skip Setup",
+    "wizard.languageDesc": "Choose your preferred language for the application interface.",
+    "wizard.databaseDesc": "Initialize the local database to store request records and usage data.",
+    "wizard.databaseInit": "Initialize Database",
+    "wizard.databaseDone": "Database initialized successfully.",
+    "wizard.databaseSkip": "I'll do this later",
+    "wizard.providerDesc": "Add API provider profiles to enable usage tracking and the Compat API proxy.",
+    "wizard.addProvider": "Add a Provider",
+    "wizard.providerLater": "I'll configure providers later",
+    "wizard.completed": "Setup complete! You can always change these settings later.",
+
     /* Language */
     "language.label": "Language",
     "language.en": "English",
@@ -594,6 +624,36 @@ export const translations: Record<Language, Translations> = {
     "quickview.metricInput": "输入",
     "quickview.metricOutput": "输出",
     "quickview.loadingStats": "正在载入今日统计…",
+
+    /* API format display */
+    "apiFormat.openai": "OpenAI",
+    "apiFormat.anthropic": "Anthropic",
+    "apiFormat.custom": "自定义 OpenAI 兼容",
+
+    /* Settings - misc */
+    "settings.apiKeyNone": "无",
+    "settings.endpoint.claude": "Claude Code 端点",
+    "settings.endpoint.openai": "OpenAI 客户端",
+
+    /* Wizard */
+    "wizard.title": "欢迎使用 Countdown",
+    "wizard.subtitle": "只需几步即可完成设置。",
+    "wizard.step.language": "语言",
+    "wizard.step.database": "数据库",
+    "wizard.step.provider": "提供商",
+    "wizard.next": "下一步",
+    "wizard.back": "上一步",
+    "wizard.finish": "完成",
+    "wizard.skip": "跳过设置",
+    "wizard.languageDesc": "选择应用程序界面使用的语言。",
+    "wizard.databaseDesc": "初始化本地数据库以存储请求记录和使用数据。",
+    "wizard.databaseInit": "初始化数据库",
+    "wizard.databaseDone": "数据库初始化成功。",
+    "wizard.databaseSkip": "稍后再做",
+    "wizard.providerDesc": "添加 API 提供商配置以启用用量跟踪和兼容 API 代理。",
+    "wizard.addProvider": "添加提供商",
+    "wizard.providerLater": "稍后配置提供商",
+    "wizard.completed": "设置完成！您可以随时在设置页面更改这些配置。",
 
     /* Language */
     "language.label": "语言",

@@ -15,8 +15,8 @@ use app::commands::{
     list_filtered_requests,
 };
 use app::commands::{
-    database_healthcheck, get_bootstrap_info, get_ui_language, initialize_local_database,
-    set_ui_language,
+    complete_wizard, database_healthcheck, get_bootstrap_info, get_ui_language,
+    initialize_local_database, is_db_initialized, is_first_launch, set_ui_language,
 };
 use app::commands::{
     delete_provider_profile, list_provider_profiles, save_provider_profile,
@@ -54,6 +54,9 @@ pub fn run() {
             get_bootstrap_info,
             initialize_local_database,
             database_healthcheck,
+            is_first_launch,
+            complete_wizard,
+            is_db_initialized,
             get_ui_language,
             set_ui_language,
             open_main_page,

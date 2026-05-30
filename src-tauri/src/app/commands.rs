@@ -5,6 +5,7 @@ use tauri::{AppHandle, Emitter, Manager};
 
 use crate::compat_api;
 use crate::db;
+use crate::db::repository;
 use crate::localization;
 use crate::models::{
     BootstrapInfo, ClaudeOverview, CodexOverview, CombinedTodayUsage, CombinedUsage,
@@ -17,6 +18,7 @@ use crate::models::{
 
 const UI_LANGUAGE_CHANGED_EVENT: &str = "ui-language-changed";
 const COMPAT_API_STATUS_CHANGED_EVENT: &str = "compat-api-status-changed";
+const WIZARD_COMPLETED_KEY: &str = "wizard_completed";
 
 #[tauri::command]
 pub fn get_bootstrap_info(app: AppHandle) -> Result<BootstrapInfo, String> {
@@ -53,6 +55,30 @@ pub fn initialize_local_database(app: AppHandle) -> Result<DatabaseHealth, Strin
 #[tauri::command]
 pub fn database_healthcheck(app: AppHandle) -> Result<DatabaseHealth, String> {
     db::healthcheck(&app)
+}
+
+#[tauri::command]
+pub fn is_first_launch(app: AppHandle) -> Result<bool, String> {
+    if let Ok(connection) = db::get_connection(&app) {
+        if let Ok(Some(value)) = repository::get_app_metadata(&connection, WIZARD_COMPLETED_KEY) {
+            return Ok(value != "true");
+        }
+    }
+    Ok(true)
+}
+
+#[tauri::command]
+pub fn complete_wizard(app: AppHandle) -> Result<(), String> {
+    db::initialize(&app)?;
+    let connection = db::get_connection(&app)?;
+    repository::set_app_metadata(&connection, WIZARD_COMPLETED_KEY, "true")?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn is_db_initialized(app: AppHandle) -> Result<bool, String> {
+    let database_path = db::database_path(&app)?;
+    Ok(database_path.exists())
 }
 
 #[tauri::command]

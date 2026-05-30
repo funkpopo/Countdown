@@ -7,23 +7,14 @@ import {
   type QuickViewSummary,
 } from "./desktop";
 import { useLanguage } from "./i18n";
+import { useFormatNumber, useFormatPercent } from "./i18n/formatters";
 import "./QuickView.css";
 
-function useFormatNumber() {
-  const { language } = useLanguage();
-  const formatter = useMemo(() => new Intl.NumberFormat(language === "zh" ? "zh-CN" : "en-US"), [language]);
-  return useCallback((value: number | null | undefined) => {
-    if (value == null) {
-      return "0";
-    }
-
-    return formatter.format(value);
-  }, [formatter]);
-}
-
-function useFormatClock() {
-  const { language } = useLanguage();
-  const formatter = useMemo(
+function QuickView() {
+  const { t, language } = useLanguage();
+  const formatNumber = useFormatNumber();
+  const formatPercent = useFormatPercent();
+  const clockFormatter = useMemo(
     () =>
       new Intl.DateTimeFormat(language === "zh" ? "zh-CN" : "en-US", {
         hour: "2-digit",
@@ -31,45 +22,15 @@ function useFormatClock() {
       }),
     [language],
   );
-  return useCallback(
+  const formatClock = useCallback(
     (value: string | null | undefined) => {
-      if (!value) {
-        return "--:--";
-      }
-
+      if (!value) return "--:--";
       const date = new Date(value);
-      if (Number.isNaN(date.getTime())) {
-        return "--:--";
-      }
-
-      return formatter.format(date);
+      if (Number.isNaN(date.getTime())) return "--:--";
+      return clockFormatter.format(date);
     },
-    [formatter],
+    [clockFormatter],
   );
-}
-
-function useFormatPercent() {
-  const { language } = useLanguage();
-  const formatter = useMemo(
-    () =>
-      new Intl.NumberFormat(language === "zh" ? "zh-CN" : "en-US", {
-        style: "percent",
-        maximumFractionDigits: 1,
-      }),
-    [language],
-  );
-
-  return useCallback(
-    (value: number | null | undefined) => formatter.format(value ?? 0),
-    [formatter],
-  );
-}
-
-function QuickView() {
-  const { t } = useLanguage();
-  const formatNumber = useFormatNumber();
-  const formatClock = useFormatClock();
-  const formatPercent = useFormatPercent();
   const [summary, setSummary] = useState<QuickViewSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -95,7 +56,7 @@ function QuickView() {
   const providerCards = usage
     ? [
         {
-          label: "Claude Code",
+          label: t("claude.title"),
           totalTokens: usage.claudeTotalTokens,
           inputTokens: usage.claudeInputTokens,
           outputTokens: usage.claudeOutputTokens,
@@ -103,7 +64,7 @@ function QuickView() {
           tone: "claude",
         },
         {
-          label: "Codex",
+          label: t("codex.title"),
           totalTokens: usage.codexTotalTokens,
           inputTokens: usage.codexInputTokens,
           outputTokens: usage.codexOutputTokens,

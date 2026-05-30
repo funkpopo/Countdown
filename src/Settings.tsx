@@ -308,16 +308,16 @@ function formatRouteSummary(profile: ProviderProfileRecord, t: (key: string, ...
   return t("settings.defaultRoute");
 }
 
-function formatApiFormat(value: string): string {
+function formatApiFormat(value: string, t: (key: string) => string): string {
   if (value === "anthropic") {
-    return "Anthropic";
+    return t("apiFormat.anthropic");
   }
 
   if (value === "custom") {
-    return "Custom";
+    return t("apiFormat.custom");
   }
 
-  return "OpenAI";
+  return t("apiFormat.openai");
 }
 
 function profileToEditorJson(profile: EditableProviderProfile): string {
@@ -809,8 +809,8 @@ function Settings() {
           ) : null}
         </div>
         <div className="compat-help">
-          <span>Claude Code endpoint: <code>http://{compatStatus?.listenAddress ?? listenAddress}/v1/messages</code></span>
-          <span>OpenAI clients: <code>http://{compatStatus?.listenAddress ?? listenAddress}/v1/chat/completions</code></span>
+          <span>{t("settings.endpoint.claude")}: <code>http://{compatStatus?.listenAddress ?? listenAddress}/v1/messages</code></span>
+          <span>{t("settings.endpoint.openai")}: <code>http://{compatStatus?.listenAddress ?? listenAddress}/v1/chat/completions</code></span>
         </div>
       </section>
 
@@ -963,10 +963,10 @@ function Settings() {
                       <span className="mono">{profile.providerKey}</span>
                     </div>
                   </td>
-                  <td>{formatApiFormat(profile.apiFormat)}</td>
+                  <td>{formatApiFormat(profile.apiFormat, t)}</td>
                   <td>{formatRouteSummary(profile, t)}</td>
                   <td className="mono">{profile.baseUrl ?? t("settings.defaultRoute")}</td>
-                  <td className="mono">{profile.apiKeyEnv ?? "none"}</td>
+                  <td className="mono">{profile.apiKeyEnv ?? t("settings.apiKeyNone")}</td>
                   <td>{readRoutePriority(profile.extraJson)}</td>
                   <td>
                     {(() => {
